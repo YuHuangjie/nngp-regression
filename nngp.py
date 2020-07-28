@@ -99,7 +99,7 @@ class NNGPKernel():
             if self.use_precomputed_grid:
                 os.makedirs(grid_path, exist_ok=True)
                 with open(os.path.join(grid_path, grid_file_name), "wb") as f:
-                    np.save(f, grid_data.cpu().numpy())
+                    np.save(f, [grid_data[i].numpy() for i in range(4)])
 
                 with open(os.path.join(grid_path, grid_file_name), "rb") as f:
                     grid_data_np = np.load(f, allow_pickle=True, encoding='bytes')
