@@ -41,8 +41,7 @@ class GaussianProcessRegression():
         self.kern = kern
         self.current_stability_eps = 1e-10
 
-        self.k_np = None
-        self.l_np = None
+        self.l = None
 
     def _build_predict(self, test_x, full_cov=False):
         logging.info("Using pre-computed Kernel")
@@ -79,7 +78,7 @@ class GaussianProcessRegression():
             ArithmeticError: Cholesky fails even after increasing to large values of
                 stability epsilon.
         """
-        if self.l_np is None:
+        if self.l is None:
             start_time = time.time()
             self.k_data_data = self.kern.k_full(self.input_x)
             logging.info("Computed K_DD in {:.2f} secs".format(time.time()-start_time))
