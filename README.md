@@ -1,6 +1,6 @@
 # NNGP: Deep Neural Network Kernel for Gaussian Process
 
-PyTorch open source re-implementation of
+Numpy open source re-implementation of
 
 [*Deep Neural Networks as Gaussian Processes*](https://arxiv.org/abs/1711.00165)
 
