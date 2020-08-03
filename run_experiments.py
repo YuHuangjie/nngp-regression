@@ -35,8 +35,6 @@ import argparse
 import json
 
 import numpy as np
-import torch
-import torch.nn.functional as F
 
 import gpr
 import nngp
@@ -139,9 +137,11 @@ def run_nngp_eval(args):
     logging.info('Building Model')
 
     if hparams['nonlinearity'] == 'tanh':
-        nonlin_fn = F.tanh
+        nonlin_fn = lambda x: np.tanh(x)
     elif hparams['nonlinearity'] == 'relu':
-        nonlin_fn = F.relu
+        def relu(x):
+            return x * (x > 0)
+        nonlin_fn = relu
     else:
         raise NotImplementedError
 
@@ -218,5 +218,4 @@ def run_nngp_eval(args):
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    torch.set_default_dtype(torch.float64)
     run_nngp_eval(args)

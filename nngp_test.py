@@ -16,10 +16,8 @@
 
 import unittest
 import numpy as np
-import torch
-import torch.nn.functional as F
 
-import nngp_torch as nngp
+import nngp
 
 
 class NNGPTest(unittest.TestCase):
@@ -39,11 +37,11 @@ class NNGPTest(unittest.TestCase):
         Returns:
             qab_exact: tensor, exact covariance matrix.
         """
-        angle = torch.acos(corr_ab)
-        jtheta = torch.sin(angle) + (np.pi - angle) * torch.cos(angle)
+        angle = np.arccos(corr_ab)
+        jtheta = np.sin(angle) + (np.pi - angle) * np.cos(angle)
 
-        term1 = torch.unsqueeze(var_aa, 1).repeat([1, corr_ab.shape[0]])
-        term2 = torch.unsqueeze(jtheta, 0).repeat([var_aa.shape[0], 1])
+        term1 = np.tile(np.expand_dims(var_aa, 1), [1, corr_ab.shape[0]])
+        term2 = np.tile(np.expand_dims(jtheta, 0), [var_aa.shape[0], 1])
         qab_exact = (1 / (2 * np.pi)) * term1 * term2
 
         return qab_exact
@@ -58,7 +56,7 @@ class NNGPTest(unittest.TestCase):
         """
         n_gauss, n_var, n_corr = 301, 33, 31
         kernel = nngp.NNGPKernel(
-            nonlin_fn=F.relu, n_gauss=n_gauss, n_var=n_var, n_corr=n_corr)
+            nonlin_fn=lambda x: x * (x > 0), n_gauss=n_gauss, n_var=n_var, n_corr=n_corr)
 
         var_aa_grid = kernel.var_aa_grid
         corr_ab_grid = kernel.corr_ab_grid
@@ -70,15 +68,15 @@ class NNGPTest(unittest.TestCase):
 
         self.assertEqual(list(var_aa_grid.shape), [n_var])
         self.assertEqual(list(corr_ab_grid.shape), [n_corr])
-        self.assertTrue(torch.allclose(qaa_exact, qaa_grid, rtol=1e-6))
-        self.assertTrue(torch.allclose(qab_exact, qab_grid, rtol=1e-6, atol=2e-2))
+        self.assertTrue(np.allclose(qaa_exact, qaa_grid, rtol=1e-6))
+        self.assertTrue(np.allclose(qab_exact, qab_grid, rtol=1e-6, atol=2e-2))
 
     def testComputeQmapGridReluLogSpacing(self):
         """Test checks the compute_qmap_grid function with log_spacing=True.
         """
         n_gauss, n_var, n_corr = 301, 33, 31
         kernel = nngp.NNGPKernel(
-            nonlin_fn=F.relu, n_gauss=n_gauss, n_var=n_var, n_corr=n_corr)
+            nonlin_fn=lambda x: x * (x > 0), n_gauss=n_gauss, n_var=n_var, n_corr=n_corr)
 
         var_aa_grid = kernel.var_aa_grid
         corr_ab_grid = kernel.corr_ab_grid
@@ -90,15 +88,15 @@ class NNGPTest(unittest.TestCase):
 
         self.assertEqual(list(var_aa_grid.shape), [n_var])
         self.assertEqual(list(corr_ab_grid.shape), [n_corr])
-        self.assertTrue(torch.allclose(qaa_exact, qaa_grid, rtol=1e-6, atol=2e-2))
-        self.assertTrue(torch.allclose(qab_exact, qab_grid, rtol=1e-6, atol=2e-2))
+        self.assertTrue(np.allclose(qaa_exact, qaa_grid, rtol=1e-6, atol=2e-2))
+        self.assertTrue(np.allclose(qab_exact, qab_grid, rtol=1e-6, atol=2e-2))
 
     def testComputeQmapGridEvenNGauss(self):
         n_gauss, n_var, n_corr = 102, 33, 31
 
         with self.assertRaises(ValueError):
             nngp.NNGPKernel(
-                nonlin_fn=F.relu, n_gauss=n_gauss, n_var=n_var, n_corr=n_corr)
+                nonlin_fn=lambda x: x * (x > 0), n_gauss=n_gauss, n_var=n_var, n_corr=n_corr)
 
 if __name__ == "__main__":
     unittest.main()

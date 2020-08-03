@@ -24,8 +24,7 @@ import os
 import logging
 
 import numpy as np
-import torch
-import torch.nn.functional as F
+from scipy.special import logsumexp
 import interp as interp
 
 fraction_of_int32 = 32
@@ -46,7 +45,7 @@ class NNGPKernel():
     """
     def __init__(self,
                 depth=1,
-                nonlin_fn=F.relu,
+                nonlin_fn=lambda x: x * (x > 0),
                 weight_var=1.,
                 bias_var=1.,
                 n_gauss=101,
@@ -85,13 +84,9 @@ class NNGPKernel():
         # Load grid file if it exists already
         if self.use_precomputed_grid and os.path.exists(os.path.join(grid_path, grid_file_name)):
             with open(os.path.join(grid_path, grid_file_name), "rb") as f:
-                grid_data_np = np.load(f, allow_pickle=True, encoding='bytes')
+                grid_data = np.load(f, allow_pickle=True, encoding='bytes')
                 logging.info("Loaded interpolation grid from "
                             f"{os.path.join(grid_path, grid_file_name)}")
-                grid_data = (torch.from_numpy(grid_data_np[0]),
-                            torch.from_numpy(grid_data_np[1]),
-                            torch.from_numpy(grid_data_np[2]),
-                            torch.from_numpy(grid_data_np[3]))
         else:
             logging.info("Generating interpolation grid...")
             grid_data = _compute_qmap_grid(self.nonlin_fn, n_gauss, n_var, n_corr,
@@ -102,13 +97,9 @@ class NNGPKernel():
                     np.save(f, [grid_data[i].numpy() for i in range(4)])
 
                 with open(os.path.join(grid_path, grid_file_name), "rb") as f:
-                    grid_data_np = np.load(f, allow_pickle=True, encoding='bytes')
+                    grid_data = np.load(f, allow_pickle=True, encoding='bytes')
                     logging.info("Loaded interpolation grid from "
                                 f"{os.path.join(grid_path, grid_file_name)}")
-                    grid_data = (torch.from_numpy(grid_data_np[0]),
-                                torch.from_numpy(grid_data_np[1]),
-                                torch.from_numpy(grid_data_np[2]),
-                                torch.from_numpy(grid_data_np[3]))
 
         return grid_data
 
@@ -125,7 +116,7 @@ class NNGPKernel():
         Returns:
         qaa: variance at the output.
         """
-        current_qaa = self.weight_var * torch.tensor([1.]) + self.bias_var
+        current_qaa = self.weight_var * np.array([1.]) + self.bias_var
         self.layer_qaa_dict = {0: current_qaa}
         for l in range(self.depth):
             samp_qaa = interp.interp_lin(self.var_aa_grid, self.qaa_grid, current_qaa)
@@ -134,7 +125,7 @@ class NNGPKernel():
             current_qaa = samp_qaa
 
         if return_full:
-            qaa = current_qaa[:1].expand([input_x.shape[0]])
+            qaa = np.repeat(current_qaa[:1], [input_x.shape[0]])
         else:
             qaa = current_qaa[0]
         return qaa
@@ -148,7 +139,7 @@ class NNGPKernel():
         else:
             input2 = self._input_layer_normalization(input2)
 
-        cov_init = torch.matmul(input1, input2.T) / input1.shape[1]
+        cov_init = np.matmul(input1, input2.T) / input1.shape[1]
 
         self.k_diag(input1)
         q_aa_init = self.layer_qaa_dict[0]
@@ -162,7 +153,7 @@ class NNGPKernel():
             for b_x in range(batch_count):
                 corr_flat_batch = corr[
                     batch_size * b_x : batch_size * (b_x+1), :]
-                corr_flat_batch = torch.reshape(corr_flat_batch, [-1])
+                corr_flat_batch = np.reshape(corr_flat_batch, [-1])
 
                 for l in range(self.depth):
                     q_aa = self.layer_qaa_dict[l]
@@ -176,9 +167,9 @@ class NNGPKernel():
 
                 q_ab_all.append(q_ab)
             
-            q_ab_all = torch.stack(q_ab_all, 0)
+            q_ab_all = np.stack(q_ab_all, 0)
         else:
-            corr_flat = torch.reshape(corr, [-1])
+            corr_flat = np.reshape(corr, [-1])
             for l in range(self.depth):
                 q_aa = self.layer_qaa_dict[l]
                 q_ab = interp.interp_lin_2d(x=self.var_aa_grid,
@@ -190,15 +181,15 @@ class NNGPKernel():
                 corr_flat = q_ab / self.layer_qaa_dict[l+1][0]
                 q_ab_all = q_ab
 
-        return torch.reshape(q_ab_all, cov_init.shape)
+        return np.reshape(q_ab_all, cov_init.shape)
 
     def _input_layer_normalization(self, x):
         """Input normalization to unit variance or fixed point variance.
         """
         # Layer norm, fix to unit variance
         eps = 1e-15
-        mean, var = torch.mean(x, 1, keepdim=True), torch.var(x, 1, keepdim=True, unbiased=False)
-        x_normalized = (x - mean) / torch.sqrt(var + eps)
+        mean, var = np.mean(x, 1, keepdims=True), np.var(x, 1, keepdims=True)
+        x_normalized = (x - mean) / np.sqrt(var + eps)
         return x_normalized
 
     def _get_batch_size_and_count(self, input1, input2):
@@ -227,11 +218,11 @@ def _fill_qab_slice(idx, z1, z2, var_aa, corr_ab, nonlin_fn):
     """Helper method used for parallel computation for full qab."""
     log_weights_ab_unnorm = -(z1**2 + z2**2 - 2 * z1 * z2 * corr_ab) / (
         2 * var_aa[idx] * (1 - corr_ab**2))
-    log_weights_ab = log_weights_ab_unnorm - torch.logsumexp(
-        log_weights_ab_unnorm, axis=[0, 1], keepdim=True)
-    weights_ab = torch.exp(log_weights_ab)
+    log_weights_ab = log_weights_ab_unnorm - logsumexp(
+        log_weights_ab_unnorm, axis=(0, 1), keepdims=True)
+    weights_ab = np.exp(log_weights_ab)
 
-    qab_slice = torch.sum(nonlin_fn(z1) * nonlin_fn(z2) * weights_ab, axis=[0, 1])
+    qab_slice = np.sum(nonlin_fn(z1) * nonlin_fn(z2) * weights_ab, axis=(0, 1))
     print(f"Generating slice: [{idx}]")
     return qab_slice
 
@@ -282,28 +273,28 @@ def _compute_qmap_grid(nonlin_fn,
     if n_gauss % 2 != 1:
         raise ValueError(f"n_gauss={n_gauss} should be an odd integer")
 
-    min_var = torch.tensor(min_var, dtype=torch.float64)
-    max_var = torch.tensor(max_var, dtype=torch.float64)
-    max_corr = torch.tensor(max_corr, dtype=torch.float64)
-    max_gauss = torch.tensor(max_gauss, dtype=torch.float64)
+    min_var = min_var
+    max_var = max_var
+    max_corr = max_corr
+    max_gauss = max_gauss
 
     # Evaluation points for numerical integration over a Gaussian.
-    z1 = torch.reshape(torch.linspace(-max_gauss, max_gauss, n_gauss), (-1, 1, 1))
-    z2 = z1.permute(1, 0, 2)
+    z1 = np.reshape(np.linspace(-max_gauss, max_gauss, n_gauss), (-1, 1, 1))
+    z2 = np.transpose(z1, (1, 0, 2))
 
     if log_spacing:
-        var_aa = torch.exp(torch.linspace(torch.log(min_var), torch.log(max_var), n_var))
+        var_aa = np.exp(np.linspace(np.log(min_var), np.log(max_var), n_var))
     else:
         # Evaluation points for pre-activations variance and correlation
-        var_aa = torch.linspace(min_var, max_var, n_var)
-    corr_ab = torch.reshape(torch.linspace(-max_corr, max_corr, n_corr), (1, 1, -1))
+        var_aa = np.linspace(min_var, max_var, n_var)
+    corr_ab = np.reshape(np.linspace(-max_corr, max_corr, n_corr), (1, 1, -1))
 
     # compute q_aa
-    log_weights_aa_unnorm = -0.5 * (z1**2 / torch.reshape(var_aa, [1, 1, -1]))
-    log_weights_aa = log_weights_aa_unnorm - torch.logsumexp(
-        log_weights_aa_unnorm, [0, 1], keepdim=True)
-    weights_aa = torch.exp(log_weights_aa)
-    qaa = torch.sum(nonlin_fn(z1)**2 * weights_aa, axis=[0, 1])
+    log_weights_aa_unnorm = -0.5 * (z1**2 / np.reshape(var_aa, [1, 1, -1]))
+    log_weights_aa = log_weights_aa_unnorm - logsumexp(
+        log_weights_aa_unnorm, (0, 1), keepdims=True)
+    weights_aa = np.exp(log_weights_aa)
+    qaa = np.sum(nonlin_fn(z1)**2 * weights_aa, axis=(0, 1))
 
     # compute q_ab
     # weights to reweight uniform samples by, for q_ab.
@@ -314,11 +305,11 @@ def _compute_qmap_grid(nonlin_fn,
         return _fill_qab_slice(idx, z1, z2, var_aa, corr_ab, nonlin_fn)
 
     # TODO: multithread
-    qab = torch.zeros((n_var, n_corr))
+    qab = np.zeros((n_var, n_corr))
     for i in range(n_var):
         qab[i] = fill_qab_slice(i)
 
-    var_grid_pts = torch.reshape(var_aa, [-1])
-    corr_grid_pts = torch.reshape(corr_ab, [-1])
+    var_grid_pts = np.reshape(var_aa, [-1])
+    corr_grid_pts = np.reshape(corr_ab, [-1])
 
     return var_grid_pts, corr_grid_pts, qaa, qab
