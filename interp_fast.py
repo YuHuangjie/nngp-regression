@@ -15,6 +15,7 @@
 """Interpolate in NNGP grid.
 """
 
+from ctypes import *
 import numpy as np
 
 def interp_lin(x, y, xp, log_spacing=False):
@@ -54,45 +55,35 @@ def interp_lin(x, y, xp, log_spacing=False):
     yp = y1 * weight1 + y2 * weight2
     return yp
 
-def _get_interp_idxs_weights_2d(x, xp, y, yp, x_log_spacing=False):
-    if x_log_spacing:
-        x = np.log(x)
-        xp = np.log(xp)
-
-    xp = np.repeat(xp, yp.shape)
-    xyp = np.expand_dims(np.stack([xp, yp]), 1)
-    xy0 = np.reshape(np.stack([x[0], y[0]]), [2, 1, 1])
-    xy1 = np.reshape(np.stack([x[1], y[1]]), [2, 1, 1])
-
-    spacing = xy1 - xy0
-    ind_grid = (xyp - xy0) / spacing
-    ind = ind_grid.astype(np.int64) + [[[0], [1]]]
-
-    max_ind = [[[x.shape[0] - 1]], [[y.shape[0] - 1]]]
-    ind = np.minimum(ind, max_ind)
-    ind_float = ind.astype(np.float64)
-
-    xy_grid = ind_float * spacing + xy0
-
-    weight = np.abs(xyp - xy_grid) / spacing
-    if x_log_spacing:
-        weight = np.stack([np.exp(weight[0]), weight[1]])
-    weight = 1. - weight
-
-    weight_sum = np.sum(weight, axis=1, keepdims=True)
-    weight /= weight_sum
-
-    return ind, weight
+interp_lib = cdll.LoadLibrary('./libinterp.so')
+# void interp_lin_2d(const double *x, 
+#         size_t sz_x, // no. elements in x
+#         const double *y, 
+#         size_t sz_y, // no. elements in y
+#         const double *z, 
+#         double xp, 
+#         const double *yp, 
+#         size_t sz_yp, 
+#         double *out)
+interp_lib.interp_lin_2d.restype = None
+interp_lib.interp_lin_2d.argtypes = [POINTER(c_double), c_size_t,
+    POINTER(c_double), c_size_t, POINTER(c_double), c_double,
+    POINTER(c_double), c_size_t, POINTER(c_double)]
 
 def interp_lin_2d(x, y, z, xp, yp, out=None, x_log_spacing=False):
-    ind, weight = _get_interp_idxs_weights_2d(x, xp, y, yp, x_log_spacing)
-    if out is not None:
-        out[:] = 0
-    else:
-        out = 0
+    if out is None:
+        out = np.zeros((1,), dtype=np.float64)
 
-    for ind_x, weight_x in [(ind[0,0], weight[0,0]), (ind[0,1], weight[0,1])]:
-        for ind_y, weight_y in [(ind[1, 0], weight[1, 0]), (ind[1, 1], weight[1, 1])]:
-            zp = z[ind_x, ind_y]
-            out += zp * weight_x * weight_y
+    if x.dtype != np.float64 or y.dtype != np.float64 \
+        or z.dtype != np.float64 or yp.dtype != np.float64 \
+        or out.dtype != np.float64:
+        raise TypeError("miss-matched type")
+
+    interp_lib.interp_lin_2d(
+        x.ctypes.data_as(POINTER(c_double)), x.size, 
+        y.ctypes.data_as(POINTER(c_double)), y.size,
+        z.ctypes.data_as(POINTER(c_double)), xp, 
+        yp.ctypes.data_as(POINTER(c_double)), yp.size,
+        out.ctypes.data_as(POINTER(c_double)))
     return out
+    

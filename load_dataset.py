@@ -124,3 +124,19 @@ def _select_mnist_subset(datasets,
             valid_image, valid_label,
             test_image, test_label)
 
+def load_surface(train_paths, test_paths):
+    train_x, train_y, test_x, test_y = [], [], [], []
+
+    for p in train_paths:
+        with open(p, 'rb') as f:
+            train_x.append(np.squeeze(np.load(f)))
+            train_y.append(np.squeeze(np.load(f)))
+    train_x, train_y = np.vstack(train_x), np.vstack(train_y)
+
+    for p in test_paths:
+        with open(p, 'rb') as f:
+            test_x.append(np.squeeze(np.load(f)))
+            test_y.append(np.squeeze(np.load(f)))
+    test_x, test_y = np.vstack(test_x), np.vstack(test_y)
+
+    return (train_x, train_y, test_x, test_y)

@@ -66,7 +66,7 @@ parser.add_argument('--seed', default=1234, type=int,
                     help='Random number seed for data shuffling')
 parser.add_argument('--save_kernel', default=False, type=bool,
                     help='Save Kernel to disk')
-parser.add_argument('--dataset', default='mnist',
+parser.add_argument('--dataset', default='surface',
                     help='Which dataset to use ["mnist"]')
 
 parser.add_argument('--n_gauss', default=501, type=int,
@@ -80,25 +80,33 @@ parser.add_argument('--max_var', default=100, type=int,
 parser.add_argument('--max_gauss', default=10, type=int,
                     help='Range for gaussian integration.')
 
-
+parser.add_argument('--l_pts', default=0.01, type=float,
+                    help='length-scale of position')
+parser.add_argument('--l_dir', default=0.1, type=float,
+                    help='length-scale of directions')
+parser.add_argument('--radius', default=1e-2, type=float,
+                    help='threshold for euclidean dist of two samples')
 
 def do_eval(args, model, x_data, y_data, save_pred=False):
     """Run evaluation."""
 
-    gp_prediction, stability_eps = model.predict(x_data)
+    gp_prediction = model.predict(x_data)
+    gp_prediction = np.clip(gp_prediction, 0., 1.)
 
-    pred_1 = np.argmax(gp_prediction, axis=1)
-    accuracy = np.sum(pred_1 == np.argmax(y_data, axis=1)) / float(len(y_data))
-    mse = np.mean(np.mean((gp_prediction - y_data)**2, axis=1))
-    pred_norm = np.mean(np.linalg.norm(gp_prediction, axis=1))
-    logging.info('Accuracy: {:.4f}'.format(accuracy))
+    mse = np.mean(np.mean((gp_prediction - y_data)**2, axis=1))+1e-10
+    psnr = 10 * np.log10(1./mse)
+    logging.info('PSNR: {:.4f}'.format(psnr))
     logging.info('MSE: {:.8f}'.format(mse))
 
     if save_pred:
-        with open(os.path.join(args.experiment_dir, 'gp_prediction_stats.npy'), 'w') as f:
-            np.save(f, gp_prediction)
+        with open('data/test56.npy', 'rb') as f:
+            _,_,mask = np.load(f), np.load(f), np.squeeze(np.load(f))
+        I = np.ones((512*512,3))
+        I[mask] = np.clip(gp_prediction, 0., 1.)
+        import imageio
+        imageio.imsave('result.png', np.reshape(I, (512,512,3)))
 
-    return accuracy, mse, pred_norm, stability_eps
+    return mse, psnr
 
 
 def run_nngp_eval(args):
@@ -126,22 +134,46 @@ def run_nngp_eval(args):
     # Get the sets of images and labels for training, validation, and
     # # test on dataset.
     if args.dataset == 'mnist':
-        (train_image, train_label, valid_image, valid_label, test_image,
-            test_label) = load_dataset.load_mnist(args, 
+        (train_x, train_y, valid_x, valid_y, test_x,
+            test_y) = load_dataset.load_mnist(args, 
                 num_train=args.num_train,
                 mean_subtraction=True,
                 random_roated_labels=False)
+    elif args.dataset == 'surface':
+        train_paths = [os.path.join('data', f'{i}.npy') for i in range(100)]
+        # train_paths = [os.path.join('data', f'{i}.npy') for i in [
+        #     55,13,20,28,29,63,
+        #     65,70,76,84,89,98,
+        #     0,1,2,3,4,5,
+        #     6,7,8,9,10,11,
+        #     12,14,15,16,17,18,
+        #     19,21,22,23,24,25,
+        #     26,27,30,31,32,33,
+        #     34,35,36,37,38,39,
+        #     40,41,42,43,44,45,
+        #     46,47,48,49,50,51,
+        #     52,53,54,56,57,58]]
+        train_paths = [os.path.join('data', f'{i}.npy') for i in [
+            55,13,20,28,29,63,
+            65,70,76,84,89,98,]]
+        test_paths = [os.path.join('data', f'test{i}.npy') for i in [56]]
+        (train_x, train_y, test_x, test_y) = load_dataset.load_surface(train_paths, test_paths)
+        # train_x = train_x[:, :3]
+        # test_x = test_x[:, :3]
     else:
         raise NotImplementedError
 
+    logging.info(f'training set size: {train_x.shape[0]}')
     logging.info('Building Model')
 
     if hparams['nonlinearity'] == 'tanh':
-        nonlin_fn = lambda x: np.tanh(x)
+        nonlin_fn = np.tanh
     elif hparams['nonlinearity'] == 'relu':
         def relu(x):
             return x * (x > 0)
         nonlin_fn = relu
+    elif hparams['nonlinearity'] == 'sin':
+        nonlin_fn = np.sin
     else:
         raise NotImplementedError
 
@@ -161,51 +193,34 @@ def run_nngp_eval(args):
 
     # Construct Gaussian Process Regression model
     model = gpr.GaussianProcessRegression(
-        train_image, train_label, kern=nngp_kernel)
+        train_x, train_y, kern=nngp_kernel, l=args.l_pts, radius=args.radius)
 
     start_time = time.time()
     logging.info('Training')
 
     # For large number of training points, we do not evaluate on full set to
     # save on training evaluation time.
-    train_size = args.num_eval if args.num_train <= 5000 else 1000
-    acc_train, mse_train, norm_train, final_eps = do_eval(
-            args, model, train_image[:train_size], train_label[:train_size])
+    mse_train, psnr_train = do_eval(args, model, train_x, train_y)
     logging.info('Evaluation of training set ({0} examples) took '
-                 '{1:.3f} secs'.format(min(args.num_train, args.num_eval),
-                 time.time() - start_time))
-
-    start_time = time.time()
-    logging.info('Validation')
-    acc_valid, mse_valid, norm_valid, _ = do_eval(
-        args, model, valid_image[:args.num_eval], valid_label[:args.num_eval])
-    logging.info('Evaluation of valid set ({0} examples) took {1:.3f} secs'.format(
-        args.num_eval, time.time() - start_time))
+                 '{1:.3f} secs'.format(train_x.shape[0], time.time() - start_time))
 
     start_time = time.time()
     logging.info('Test')
-    acc_test, mse_test, norm_test, _ = do_eval(
-        args, model, test_image[:args.num_eval], test_label[:args.num_eval])
-    logging.info('Evaluation of valid set ({0} examples) took {1:.3f} secs'.format(
-        args.num_eval, time.time() - start_time))
+    mse_test, psnr_test = do_eval(args, model, test_x, test_y, save_pred=True)
+    logging.info('Evaluation of test set ({0} examples) took {1:.3f} secs'.format(
+        test_x.shape[0], time.time() - start_time))
 
     metrics = {
-        'train_acc': float(acc_train),
         'train_mse': float(mse_train),
-        'train_norm': float(norm_train),
-        'valid_acc': float(acc_valid),
-        'valid_mse': float(mse_valid),
-        'valid_norm': float(norm_valid),
-        'test_acc': float(acc_test),
+        'train_psnr': float(psnr_train),
         'test_mse': float(mse_test),
-        'test_norm': float(norm_test),
-        'stability_eps': float(final_eps),
+        'test_psnr': float(psnr_test),
     }
 
     record_results = [
         args.num_train, hparams['nonlinearity'], hparams['weight_var'],
-        hparams['bias_var'], hparams['depth'], acc_train, acc_valid, acc_test,
-        mse_train, mse_valid, mse_test, final_eps
+        hparams['bias_var'], hparams['depth'], psnr_train, psnr_test,
+        mse_train, mse_test
     ]
 
     # Store data

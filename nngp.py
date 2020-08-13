@@ -25,9 +25,9 @@ import logging
 
 import numpy as np
 from scipy.special import logsumexp
-import interp as interp
-
-fraction_of_int32 = 32
+import interp_fast as interp
+import scipy.sparse as sparse
+from kernel import *
 
 class NNGPKernel():
     """The iterative covariance Kernel for Neural Network Gaussian Process.
@@ -56,7 +56,6 @@ class NNGPKernel():
                 use_precomputed_grid=False,
                 grid_path=None):
         
-        self.depth = depth
         self.depth = depth
         self.weight_var = weight_var
         self.bias_var = bias_var
@@ -116,6 +115,7 @@ class NNGPKernel():
         Returns:
         qaa: variance at the output.
         """
+        ## squared exponential kernel
         current_qaa = self.weight_var * np.array([1.]) + self.bias_var
         self.layer_qaa_dict = {0: current_qaa}
         for l in range(self.depth):
@@ -130,89 +130,52 @@ class NNGPKernel():
             qaa = current_qaa[0]
         return qaa
 
-    def k_full(self, input1, input2=None):
+    def k_full(self, nn, x, train_x, l, radius):
         """Iteratively building the full NNGP kernel.
         """
-        input1 = self._input_layer_normalization(input1)
-        if input2 is None:
-            input2 = input1
-        else:
-            input2 = self._input_layer_normalization(input2)
+        # Initial covariance S is designed so that it's a super sparse matrix. 
+        # After k linear layers, S becomes a sparse matrix plus a constant C.
+        # graph = nn.radius_neighbors_graph(x[:,:3], radius, mode='connectivity')
+        graph = nn.radius_neighbors_graph(x[:,:3], radius, mode='distance')
+        # kernel function 1: exp(-(euclidean/L)) * pow(max(0, view_cos_dist), 8)
+        # kernel function 2: exp(-(euclidean/L)) * exp(-(1-view_cos_dist)/L2)
+        cov_init = build_kernel(graph, train_x, x, l, 9.0)
+        cov_init.eliminate_zeros()
 
-        cov_init = np.matmul(input1, input2.T) / input1.shape[1]
-
-        self.k_diag(input1)
+        logging.info(f'initial cov contains {cov_init.nnz} non-zeros')
+        self.k_diag(x)
         q_aa_init = self.layer_qaa_dict[0]
-        q_ab = cov_init
-        q_ab = self.weight_var * q_ab + self.bias_var
-        corr = q_ab / q_aa_init[0]
+        cov_init.data *= self.weight_var
+        cov_init.data += self.bias_var
+        cov_init.data /= q_aa_init[0]
+        corr = cov_init
 
-        if fraction_of_int32 > 1:
-            batch_size, batch_count = self._get_batch_size_and_count(input1, input2)
-            q_ab_all = []
-            for b_x in range(batch_count):
-                corr_flat_batch = corr[
-                    batch_size * b_x : batch_size * (b_x+1), :]
-                corr_flat_batch = np.reshape(corr_flat_batch, [-1])
+        corr_0 = np.array([self.bias_var / q_aa_init[0]])
 
-                for l in range(self.depth):
-                    q_aa = self.layer_qaa_dict[l]
-                    q_ab = interp.interp_lin_2d(x=self.var_aa_grid,
-                                                y=self.corr_ab_grid,
-                                                z=self.qab_grid,
-                                                xp=q_aa,
-                                                yp=corr_flat_batch)
-                    q_ab = self.weight_var * q_ab + self.bias_var
-                    corr_flat_batch = q_ab / self.layer_qaa_dict[l+1][0]
+        for l in range(self.depth):
+            q_aa = self.layer_qaa_dict[l]
+            q_ab = corr
+            interp.interp_lin_2d(x=self.var_aa_grid,
+                                y=self.corr_ab_grid,
+                                z=self.qab_grid,
+                                xp=q_aa,
+                                yp=corr.data,
+                                out=q_ab.data)
+            q_ab.data *= self.weight_var
+            q_ab.data += self.bias_var
+            if l != self.depth - 1:
+                corr.data /= self.layer_qaa_dict[l+1][0]
 
-                q_ab_all.append(q_ab)
-            
-            q_ab_all = np.stack(q_ab_all, 0)
-        else:
-            corr_flat = np.reshape(corr, [-1])
-            for l in range(self.depth):
-                q_aa = self.layer_qaa_dict[l]
-                q_ab = interp.interp_lin_2d(x=self.var_aa_grid,
-                                            y=self.corr_ab_grid,
-                                            z=self.qab_grid,
-                                            xp=q_aa,
-                                            yp=corr_flat)
-                q_ab = self.weight_var * q_ab + self.bias_var
-                corr_flat = q_ab / self.layer_qaa_dict[l+1][0]
-                q_ab_all = q_ab
+            q_ab_0 = interp.interp_lin_2d(x=self.var_aa_grid,
+                                y=self.corr_ab_grid,
+                                z=self.qab_grid,
+                                xp=q_aa,
+                                yp=corr_0)
+            q_ab_0 = self.weight_var * q_ab_0 + self.bias_var
+            corr_0 = q_ab_0 / self.layer_qaa_dict[l+1][0]
 
-        return np.reshape(q_ab_all, cov_init.shape)
-
-    def _input_layer_normalization(self, x):
-        """Input normalization to unit variance or fixed point variance.
-        """
-        # Layer norm, fix to unit variance
-        eps = 1e-15
-        mean, var = np.mean(x, 1, keepdims=True), np.var(x, 1, keepdims=True)
-        x_normalized = (x - mean) / np.sqrt(var + eps)
-        return x_normalized
-
-    def _get_batch_size_and_count(self, input1, input2):
-        """Compute batch size and number to split when input size is large.
-
-        Args:
-            input1: tensor, input tensor to covariance matrix
-            input2: tensor, second input tensor to covariance matrix
-
-        Returns:
-            batch_size: int, size of each batch
-            batch_count: int, number of batches
-        """
-        input1_size = input1.shape[0]
-        input2_size = input2.shape[0]
-
-        batch_size = min(np.iinfo(np.int32).max //
-                     (fraction_of_int32 * input2_size), input1_size)
-        while input1_size % batch_size != 0:
-            batch_size -= 1
-
-        batch_count = input1_size // batch_size
-        return batch_size, batch_count
+        q_ab.data -= q_ab_0
+        return q_ab, q_ab_0
 
 def _fill_qab_slice(idx, z1, z2, var_aa, corr_ab, nonlin_fn):
     """Helper method used for parallel computation for full qab."""

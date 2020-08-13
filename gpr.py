@@ -18,11 +18,17 @@
 import time
 import logging
 
+import ray
 import numpy as np
-from scipy.linalg import solve_triangular
+import scipy.sparse as sparse
+from sklearn.neighbors import KDTree, NearestNeighbors
+from sksparse.cholmod import cholesky
 
-# Option to print out kernel
-print_kernel = False
+ray.init()
+
+@ray.remote
+def solve_system(A, b):
+    return sparse.linalg.cg(A, b, atol=1e-4, tol=1e-4, maxiter=100)[0]
 
 class GaussianProcessRegression():
     """Gaussian process regression model based on GPflow.
@@ -33,44 +39,57 @@ class GaussianProcessRegression():
         kern: NNGPKernel class
     """
 
-    def __init__(self, input_x, output_y, kern):
+    def __init__(self, input_x, output_y, kern, l = 0.01, radius=1e-2):
         self.input_x = input_x.astype(np.float64)
         self.output_y = output_y.astype(np.float64)
         self.num_train, self.input_dim = input_x.shape
         _, self.output_dim = output_y.shape
 
         self.kern = kern
-        self.current_stability_eps = 1e-10
 
-        self.l = None
+        self.nn = NearestNeighbors(radius=radius, algorithm='kd_tree', n_jobs=-1).fit(input_x[:,:3])
+        self.radius = radius
+        self.l = l
+
+        self.v = None
 
     def _build_predict(self, test_x, full_cov=False):
-        logging.info("Using pre-computed Kernel")
-        self.k_data_test = self.kern.k_full(self.input_x, test_x)
+        logging.info("Performing bayesian inference")
+        self.s_test_data, self.c_test_data = self.kern.k_full(self.nn, test_x, 
+            self.input_x, self.l, self.radius)
+        self.fmean = self.s_test_data.dot(self.v) + self.c_test_data * np.sum(self.v, axis=0)
 
-        a = solve_triangular(self.l, self.k_data_test, lower=True)
-        fmean = np.matmul(a.T, self.v)
-
-        if full_cov:
-            fvar = self.kern.k_full(test_x) - np.matmul(
-                a.T, a)
-            shape = [1, 1, self.output_dim]
-            fvar = np.tile(np.expand_dims(fvar, 2), shape)
-        else:
-            fvar = self.kern.k_diag(test_x) - np.sum(a**2, 0)
-            fvar = np.tile(np.reshape(fvar, (-1, 1)), [1, self.output_dim])
+    def _build_inv_KDD(self):
+        '''
+          K_DD = S_DD + C where C is a NxN matrix with all elements being 1
+          According to Sherman-Morrison formula: 
+             inv(K_DD) = inv(S_DD) - /frac(inv(S_DD)*u*u^T*inv(S_DD))(1+u^T*inv(S_DD)*u)
+          where UU^T = C.
+          So the algorithm below calculates inv(K_DD) * y
+        '''
+        ## SPD test
+        # factor = cholesky(self.s_data_data, 1e-8,use_long=True)
+        # x = factor(self.output_y)
+        logging.info('Building inv K_DD')
         
-        self.fmean = fmean
-        self.fvar = fvar
+        C = self.c_data_data
+        a = np.zeros((self.num_train, 3)) # inv(S_DD) * y, Nx3
+        # parallel solving for inv(S_DD)\y and inv(S_DD)\u
+        A_id = ray.put(self.s_data_data)
+        result_ids = []
+        for i in range(3):
+            result_ids.append(solve_system.remote(A_id, self.output_y[:,i]))
+        result_ids.append(solve_system.remote(A_id, np.ones((self.num_train,1)) * C**0.5))
+        results = ray.get(result_ids) 
 
-    def _build_cholesky(self):
-        logging.info('Computing Kernel')
-        self.k_data_data_reg = self.k_data_data + np.eye(
-            self.num_train, dtype=np.float64) * self.current_stability_eps
-        if print_kernel:
-            print(f"K_DD = {self.k_data_data_reg}")
-        self.l = np.linalg.cholesky(self.k_data_data_reg)
-        self.v = solve_triangular(self.l, self.output_y, lower=True)
+        for i in range(3):
+            a[:,i] = results[i]
+        d = np.expand_dims(results[3], -1) # inv(S_DD)*u, Nx1
+
+        b = C**0.5 * np.sum(a, axis=0, keepdims=True)     # U^T * inv(S_DD) * y, 1x3
+        b = np.matmul(d, b)                 # inv(S_DD) * U * U^T * inv(S_DD) * y, Nx3
+        d = 1 + C**0.5 * np.sum(d, axis=0)  # 1 + U^T * inv(S_DD) * U, scalar
+        self.v = a - b / d
 
     def predict(self, test_x, get_var=False):
         """Compute mean and varaince prediction for test inputs.
@@ -79,32 +98,22 @@ class GaussianProcessRegression():
             ArithmeticError: Cholesky fails even after increasing to large values of
                 stability epsilon.
         """
-        if self.l is None:
+        if self.v is None:
             start_time = time.time()
-            self.k_data_data = self.kern.k_full(self.input_x)
-            logging.info("Computed K_DD in {:.2f} secs".format(time.time()-start_time))
+            self.s_data_data, self.c_data_data = self.kern.k_full(self.nn,
+                self.input_x, self.input_x, self.l, self.radius)
+            logging.info("Computed full K_DD in {:.2f} secs".format(time.time()-start_time))
 
-            while self.current_stability_eps < 1:
-                try:
-                    start_time = time.time()
-                    self._build_cholesky()
-                    logging.info("Computed L_DD in {:.3f} secs".format(
-                        time.time()-start_time))
-                    break
-                except RuntimeError as e:
-                    self.current_stability_eps *= 10
-                    logging.info(f"Cholesky decomposition failed {e}, trying larger "+
-                        f"epsilon {self.current_stability_eps}")
+            start_time = time.time()
+            self._build_inv_KDD()
+            logging.info("Computed inv K_DD in {:.3f} secs".format(time.time()-start_time))
 
-        if self.current_stability_eps > 0.2:
-            raise ArithmeticError("Could not compute cholesky decomposition.")
+            # don't predict training set
+            return self.output_y
 
         start_time = time.time()
         self._build_predict(test_x.astype(np.float64), get_var)
         logging.info("Did regression in {:.3f} secs".format(time.time()-start_time))
 
-        if get_var:
-            return self.fmean, self.fvar, self.current_stability_eps
-        else:
-            return self.fmean, self.current_stability_eps
+        return self.fmean
 
