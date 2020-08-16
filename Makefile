@@ -8,13 +8,15 @@ CUDA_LDFLAGS = -L/usr/local/cuda/lib64 -lcudart
 all: libinterp.so libkernel.so
 
 libinterp.so: interp.o
-	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS) $(CUDA_LDFLAGS)
+	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS)
 
 libkernel.so: kernel.o
 	$(CC) -o $@ $^ $(CFLAGS) $(LDFLAGS)
 
-interp.o: interp.cu
-	$(NVCC) -c -o $@ $^ $(CUDA_FLAGS)
+# interp.o: interp.cu
+# 	$(NVCC) -c -o $@ $^ $(CUDA_FLAGS)
+interp.o: interp.c
+	$(CC) -c -o $@ $^ $(CFLAGS)
 
 kernel.o: kernel.c
 	$(CC) -c -o $@ $^ $(CFLAGS) 

@@ -56,34 +56,48 @@ def interp_lin(x, y, xp, log_spacing=False):
     return yp
 
 interp_lib = cdll.LoadLibrary('./libinterp.so')
-# void interp_lin_2d(const double *x, 
+# void recursive_kernel(
+#         const double *x, 
 #         size_t sz_x, // no. elements in x
 #         const double *y, 
 #         size_t sz_y, // no. elements in y
 #         const double *z, 
-#         double xp, 
-#         const double *yp, 
+#         float *yp_in_out, 
 #         size_t sz_yp, 
-#         double *out)
-interp_lib.interp_lin_2d.restype = None
-interp_lib.interp_lin_2d.argtypes = [POINTER(c_double), c_size_t,
-    POINTER(c_double), c_size_t, POINTER(c_double), c_double,
-    POINTER(c_double), c_size_t, POINTER(c_double)]
+#         size_t depth,
+#         double weight_var,
+#         double bias_var,
+#         const double *layer_qaa)
+interp_lib.recursive_kernel.restype = c_double
+interp_lib.recursive_kernel.argtypes = [
+    POINTER(c_double), 
+    c_size_t,
+    POINTER(c_double), 
+    c_size_t, 
+    POINTER(c_double), 
+    POINTER(c_double), 
+    c_size_t,
+    c_size_t,
+    c_double,
+    c_double,
+    POINTER(c_double)]
 
-def interp_lin_2d(x, y, z, xp, yp, out=None, x_log_spacing=False):
-    if out is None:
-        out = np.zeros((1,), dtype=np.float64)
-
+def recursive_kernel(x, y, z, yp, depth, weight_var, bias_var, layer_qaa):
     if x.dtype != np.float64 or y.dtype != np.float64 \
         or z.dtype != np.float64 or yp.dtype != np.float64 \
-        or out.dtype != np.float64:
+        or layer_qaa.dtype != np.float64:
         raise TypeError("miss-matched type")
 
-    interp_lib.interp_lin_2d(
-        x.ctypes.data_as(POINTER(c_double)), x.size, 
-        y.ctypes.data_as(POINTER(c_double)), y.size,
-        z.ctypes.data_as(POINTER(c_double)), xp, 
-        yp.ctypes.data_as(POINTER(c_double)), yp.size,
-        out.ctypes.data_as(POINTER(c_double)))
-    return out
+    return interp_lib.recursive_kernel(
+        x.ctypes.data_as(POINTER(c_double)), 
+        x.size, 
+        y.ctypes.data_as(POINTER(c_double)), 
+        y.size,
+        z.ctypes.data_as(POINTER(c_double)),
+        yp.ctypes.data_as(POINTER(c_double)), 
+        c_size_t(yp.size),
+        c_size_t(depth), 
+        c_double(weight_var),
+        c_double(bias_var),
+        layer_qaa.ctypes.data_as(POINTER(c_double)))
     

@@ -13,8 +13,10 @@ void build_kernel(
         size_t rows,
         const double *train_x,
         const double *x,
-        double l_pos,
-        double power)
+        double l_pts,
+        double l_dir,
+        double power_pts,
+        double power_dir)
 {
         const size_t stride = 6;
 
@@ -27,13 +29,15 @@ void build_kernel(
                         double view_dist;
                         double kernel_pos, kernel_view;
 
+                        // covariance of position
                         kernel_pos = exp(-NORM(
                                 train_x[stride*col]   - x[stride*row],
                                 train_x[stride*col+1] - x[stride*row+1],
                                 train_x[stride*col+2] - x[stride*row+2]
-                        )/l_pos);
-                        kernel_pos = pow(kernel_pos, 0.6);
+                        )/l_pts);
+                        kernel_pos = pow(kernel_pos, power_pts);
 
+                        // covariance of direction
                         view_dist = 1. - DOT(
                                 train_x[stride*col+3], 
                                 train_x[stride*col+4], 
@@ -41,11 +45,11 @@ void build_kernel(
                                 x[stride*row+3],
                                 x[stride*row+4],
                                 x[stride*row+5]);
-                        // kernel_view = pow(1.-view_dist, power);
-                        
-                        kernel_view = exp(-view_dist/0.2);
-                        kernel_view = pow(kernel_view, 1.6);
+                        // kernel_view = pow(1.-view_dist, 9.0);
+                        kernel_view = exp(-view_dist/l_dir);
+                        kernel_view = pow(kernel_view, power_dir);
 
+                        /// aggregated covariance
                         data[i] = kernel_pos * kernel_view;
                 }
         }

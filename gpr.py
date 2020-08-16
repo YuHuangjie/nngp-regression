@@ -24,7 +24,7 @@ import scipy.sparse as sparse
 from sklearn.neighbors import KDTree, NearestNeighbors
 from sksparse.cholmod import cholesky
 
-ray.init()
+ray.init(object_store_memory=50000000000)
 
 @ray.remote
 def solve_system(A, b):
@@ -39,7 +39,7 @@ class GaussianProcessRegression():
         kern: NNGPKernel class
     """
 
-    def __init__(self, input_x, output_y, kern, l = 0.01, radius=1e-2):
+    def __init__(self, input_x, output_y, kern, l_pts, l_dir, gamma_pts, gamma_dir, radius):
         self.input_x = input_x.astype(np.float64)
         self.output_y = output_y.astype(np.float64)
         self.num_train, self.input_dim = input_x.shape
@@ -49,14 +49,18 @@ class GaussianProcessRegression():
 
         self.nn = NearestNeighbors(radius=radius, algorithm='kd_tree', n_jobs=-1).fit(input_x[:,:3])
         self.radius = radius
-        self.l = l
+        self.l_pts = l_pts
+        self.l_dir = l_dir
+        self.gamma_pts = gamma_pts
+        self.gamma_dir = gamma_dir
 
         self.v = None
 
     def _build_predict(self, test_x, full_cov=False):
         logging.info("Performing bayesian inference")
         self.s_test_data, self.c_test_data = self.kern.k_full(self.nn, test_x, 
-            self.input_x, self.l, self.radius)
+            self.input_x, self.l_pts, self.l_dir, self.gamma_pts,
+            self.gamma_dir, self.radius)
         self.fmean = self.s_test_data.dot(self.v) + self.c_test_data * np.sum(self.v, axis=0)
 
     def _build_inv_KDD(self):
@@ -101,7 +105,8 @@ class GaussianProcessRegression():
         if self.v is None:
             start_time = time.time()
             self.s_data_data, self.c_data_data = self.kern.k_full(self.nn,
-                self.input_x, self.input_x, self.l, self.radius)
+                self.input_x, self.input_x, self.l_pts, self.l_dir, self.gamma_pts,
+                self.gamma_dir, self.radius)
             logging.info("Computed full K_DD in {:.2f} secs".format(time.time()-start_time))
 
             start_time = time.time()

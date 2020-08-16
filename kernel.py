@@ -4,13 +4,16 @@ import numpy as np
 kernel_lib = cdll.LoadLibrary('./libkernel.so')
 # void build_kernel(
 #         double *data,
-#         const int *indices,
-#         const int *indptr,
+#         const void *indices,
+#         const void *indptr,
+#         int index_stride,
 #         size_t rows,
 #         const double *train_x,
 #         const double *x,
-#         double l_pos,
-#         double power)
+#         double l_pts,
+#         double l_dir,
+#         double power_pts,
+#         double power_dir)
 kernel_lib.build_kernel.restype = None
 kernel_lib.build_kernel.argtypes = [
         POINTER(c_double),
@@ -21,11 +24,13 @@ kernel_lib.build_kernel.argtypes = [
         POINTER(c_double),
         POINTER(c_double),
         c_double,
+        c_double,
+        c_double,
         c_double
 ]
 
 
-def build_kernel(graph, train_x, x, l_pos, power):
+def build_kernel(graph, train_x, x, l_pts, l_dir, gamma_pts, gamma_dir):
         if graph.data.dtype != np.float64 \
           or (graph.indices.dtype != np.int32 and graph.indices.dtype != np.int64) \
           or graph.indices.dtype != graph.indices.dtype \
@@ -47,7 +52,8 @@ def build_kernel(graph, train_x, x, l_pos, power):
                 graph.shape[0],
                 trainx_p,
                 x_p,
-                c_double(l_pos),
-                c_double(power)
+                c_double(l_pts),
+                c_double(l_dir),
+                c_double(gamma_pts),
+                c_double(gamma_dir)
         )
-        return graph

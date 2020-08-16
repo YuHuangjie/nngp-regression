@@ -102,80 +102,49 @@ class NNGPKernel():
 
         return grid_data
 
-    def k_diag(self, input_x, return_full=True):
+    def k_diag(self, input_x, init_cov=1.):
         """Iteratively building the diagonal part (variance) of the NNGP kernel.
 
         Args:
             input_x: tensor of input of size [num_data, input_dim].
-            return_full: boolean for output to be [num_data] sized or a scalar value
-                for normalized inputs
+            init_cov: initial covariance of two identical samples (default to 1)
 
-        Sets self.layer_qaa_dict of {layer #: qaa at the layer}
+        Sets self.layer_qaa of {layer #: qaa at the layer}
 
         Returns:
         qaa: variance at the output.
         """
         ## squared exponential kernel
-        current_qaa = self.weight_var * np.array([1.]) + self.bias_var
-        self.layer_qaa_dict = {0: current_qaa}
+        current_qaa = self.weight_var * np.array([init_cov]) + self.bias_var
+        self.layer_qaa = np.zeros((self.depth+1,))
+        self.layer_qaa[0] = current_qaa
         for l in range(self.depth):
             samp_qaa = interp.interp_lin(self.var_aa_grid, self.qaa_grid, current_qaa)
             samp_qaa = self.weight_var * samp_qaa + self.bias_var
-            self.layer_qaa_dict[l + 1] = samp_qaa
+            self.layer_qaa[l + 1] = samp_qaa
             current_qaa = samp_qaa
 
-        if return_full:
-            qaa = np.repeat(current_qaa[:1], [input_x.shape[0]])
-        else:
-            qaa = current_qaa[0]
-        return qaa
+        return current_qaa
 
-    def k_full(self, nn, x, train_x, l, radius):
+    def k_full(self, nn, x, train_x, l_pts, l_dir, gamma_pts, gamma_dir, radius):
         """Iteratively building the full NNGP kernel.
         """
         # Initial covariance S is designed so that it's a super sparse matrix. 
         # After k linear layers, S becomes a sparse matrix plus a constant C.
-        # graph = nn.radius_neighbors_graph(x[:,:3], radius, mode='connectivity')
-        graph = nn.radius_neighbors_graph(x[:,:3], radius, mode='distance')
-        # kernel function 1: exp(-(euclidean/L)) * pow(max(0, view_cos_dist), 8)
-        # kernel function 2: exp(-(euclidean/L)) * exp(-(1-view_cos_dist)/L2)
-        cov_init = build_kernel(graph, train_x, x, l, 9.0)
-        cov_init.eliminate_zeros()
+        graph = nn.radius_neighbors_graph(x[:,:3], radius, mode='connectivity')
+        logging.info(f'initial cov contains {graph.nnz} non-zeros')
+        build_kernel(graph, train_x, x, l_pts, l_dir, gamma_pts, gamma_dir)
 
-        logging.info(f'initial cov contains {cov_init.nnz} non-zeros')
-        self.k_diag(x)
-        q_aa_init = self.layer_qaa_dict[0]
-        cov_init.data *= self.weight_var
-        cov_init.data += self.bias_var
-        cov_init.data /= q_aa_init[0]
-        corr = cov_init
-
-        corr_0 = np.array([self.bias_var / q_aa_init[0]])
-
-        for l in range(self.depth):
-            q_aa = self.layer_qaa_dict[l]
-            q_ab = corr
-            interp.interp_lin_2d(x=self.var_aa_grid,
+        self.k_diag(x, 1.0)
+        cov0 = interp.recursive_kernel(x=self.var_aa_grid,
                                 y=self.corr_ab_grid,
                                 z=self.qab_grid,
-                                xp=q_aa,
-                                yp=corr.data,
-                                out=q_ab.data)
-            q_ab.data *= self.weight_var
-            q_ab.data += self.bias_var
-            if l != self.depth - 1:
-                corr.data /= self.layer_qaa_dict[l+1][0]
-
-            q_ab_0 = interp.interp_lin_2d(x=self.var_aa_grid,
-                                y=self.corr_ab_grid,
-                                z=self.qab_grid,
-                                xp=q_aa,
-                                yp=corr_0)
-            q_ab_0 = self.weight_var * q_ab_0 + self.bias_var
-            corr_0 = q_ab_0 / self.layer_qaa_dict[l+1][0]
-
-        q_ab.data -= q_ab_0
-        return q_ab, q_ab_0
+                                yp=graph.data,
+                                depth=self.depth,
+                                weight_var=self.weight_var,
+                                bias_var=self.bias_var,
+                                layer_qaa=self.layer_qaa)
+        return graph, cov0
 
 def _fill_qab_slice(idx, z1, z2, var_aa, corr_ab, nonlin_fn):
     """Helper method used for parallel computation for full qab."""

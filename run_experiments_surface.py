@@ -35,10 +35,12 @@ import argparse
 import json
 
 import numpy as np
+import imageio
+import matplotlib.pyplot as plt
 
 import gpr
 import nngp
-import load_dataset
+from load_dataset import *
 
 logging.basicConfig(level=logging.INFO)
 
@@ -58,12 +60,6 @@ parser.add_argument('--data_dir', default='/tmp/nngp/data/',
                     help='Directory for data.')
 parser.add_argument('--grid_path', default='./grid_data',
                     help='Directory to put or find the training data.')
-parser.add_argument('--num_train', default=1000, type=int,
-                    help='Number of training data.')
-parser.add_argument('--num_eval', default=1000, type=int,
-                    help='Number of evaluation data. Use 10_000 for full eval')
-parser.add_argument('--seed', default=1234, type=int,
-                    help='Random number seed for data shuffling')
 parser.add_argument('--save_kernel', default=False, type=bool,
                     help='Save Kernel to disk')
 parser.add_argument('--dataset', default='surface',
@@ -84,10 +80,14 @@ parser.add_argument('--l_pts', default=0.01, type=float,
                     help='length-scale of position')
 parser.add_argument('--l_dir', default=0.1, type=float,
                     help='length-scale of directions')
-parser.add_argument('--radius', default=1e-2, type=float,
+parser.add_argument('--gamma_pts', default=0.5, type=float,
+                    help='exponential of position')
+parser.add_argument('--gamma_dir', default=1.5, type=float,
+                    help='exponential of directions')
+parser.add_argument('--radius', default=2e-2, type=float,
                     help='threshold for euclidean dist of two samples')
 
-def do_eval(args, model, x_data, y_data, save_pred=False):
+def do_eval(args, model, x_data, y_data, mask=None, save_path=None):
     """Run evaluation."""
 
     gp_prediction = model.predict(x_data)
@@ -98,13 +98,10 @@ def do_eval(args, model, x_data, y_data, save_pred=False):
     logging.info('PSNR: {:.4f}'.format(psnr))
     logging.info('MSE: {:.8f}'.format(mse))
 
-    if save_pred:
-        with open('data/test56.npy', 'rb') as f:
-            _,_,mask = np.load(f), np.load(f), np.squeeze(np.load(f))
-        I = np.ones((512*512,3))
+    if save_path is not None and mask is not None:
+        I = np.zeros((512*512,3))
         I[mask] = np.clip(gp_prediction, 0., 1.)
-        import imageio
-        imageio.imsave('result.png', np.reshape(I, (512,512,3)))
+        imageio.imsave(save_path, np.reshape(I, (512,512,3)))
 
     return mse, psnr
 
@@ -118,11 +115,13 @@ def run_nngp_eval(args):
         'nonlinearity': args.nonlinearity,
         'weight_var': args.weight_var,
         'bias_var': args.bias_var,
-        'depth': args.depth
+        'depth': args.depth,
+        'l_pts': args.l_pts,
+        'l_dir': args.l_dir,
+        'gamma_pts': args.gamma_pts,
+        'gamma_dir': args.gamma_dir,
+        'radius': args.radius,
     }
-    # Write hparams to experiment directory.
-    with open(run_dir + '/hparams.txt', mode='w') as f:
-        f.write(json.dumps(hparams))
 
     logging.info('Starting job.')
     logging.info('Hyperparameters')
@@ -133,33 +132,17 @@ def run_nngp_eval(args):
 
     # Get the sets of images and labels for training, validation, and
     # # test on dataset.
-    if args.dataset == 'mnist':
-        (train_x, train_y, valid_x, valid_y, test_x,
-            test_y) = load_dataset.load_mnist(args, 
-                num_train=args.num_train,
-                mean_subtraction=True,
-                random_roated_labels=False)
-    elif args.dataset == 'surface':
-        train_paths = [os.path.join('data', f'{i}.npy') for i in range(100)]
+    if args.dataset == 'surface':
+        train_paths = [os.path.join('data', f'{i}.npy') for i in 
+            np.random.choice(range(100),90,replace=False)]
         # train_paths = [os.path.join('data', f'{i}.npy') for i in [
         #     55,13,20,28,29,63,
-        #     65,70,76,84,89,98,
-        #     0,1,2,3,4,5,
-        #     6,7,8,9,10,11,
-        #     12,14,15,16,17,18,
-        #     19,21,22,23,24,25,
-        #     26,27,30,31,32,33,
-        #     34,35,36,37,38,39,
-        #     40,41,42,43,44,45,
-        #     46,47,48,49,50,51,
-        #     52,53,54,56,57,58]]
-        train_paths = [os.path.join('data', f'{i}.npy') for i in [
-            55,13,20,28,29,63,
-            65,70,76,84,89,98,]]
-        test_paths = [os.path.join('data', f'test{i}.npy') for i in [56]]
-        (train_x, train_y, test_x, test_y) = load_dataset.load_surface(train_paths, test_paths)
-        # train_x = train_x[:, :3]
-        # test_x = test_x[:, :3]
+        #     65,70,76,84,89,98,]]
+        test_paths = [os.path.join('data', f'test{i}.npy') for i in range(200)]
+        (train_x, train_y) = load_training_set(train_paths)
+        (test_x, test_y, test_mask) = load_test_set(test_paths)
+        # choice = np.random.choice(train_x.shape[0], int(train_x.shape[0]*0.8), replace=False)
+        # train_x, train_y = train_x[choice], train_y[choice]
     else:
         raise NotImplementedError
 
@@ -172,8 +155,6 @@ def run_nngp_eval(args):
         def relu(x):
             return x * (x > 0)
         nonlin_fn = relu
-    elif hparams['nonlinearity'] == 'sin':
-        nonlin_fn = np.sin
     else:
         raise NotImplementedError
 
@@ -193,7 +174,8 @@ def run_nngp_eval(args):
 
     # Construct Gaussian Process Regression model
     model = gpr.GaussianProcessRegression(
-        train_x, train_y, kern=nngp_kernel, l=args.l_pts, radius=args.radius)
+        train_x, train_y, kern=nngp_kernel, l_pts=hparams['l_pts'], l_dir=hparams['l_dir'],
+        gamma_pts=hparams['gamma_pts'], gamma_dir=hparams['gamma_dir'], radius=hparams['radius'])
 
     start_time = time.time()
     logging.info('Training')
@@ -206,29 +188,27 @@ def run_nngp_eval(args):
 
     start_time = time.time()
     logging.info('Test')
-    mse_test, psnr_test = do_eval(args, model, test_x, test_y, save_pred=True)
+    psnr_test = [None]*len(test_x)
+    for i, (tx, ty, tm) in enumerate(zip(test_x, test_y, test_mask)):
+        _, psnr_test[i] = do_eval(args, model, tx, ty, mask=tm, save_path=f'{run_dir}/result{i}.png')
     logging.info('Evaluation of test set ({0} examples) took {1:.3f} secs'.format(
-        test_x.shape[0], time.time() - start_time))
+        test_x[0].shape[0]*len(test_x), time.time() - start_time))
 
-    metrics = {
-        'train_mse': float(mse_train),
-        'train_psnr': float(psnr_train),
-        'test_mse': float(mse_test),
-        'test_psnr': float(psnr_test),
+    # Log results and hyper-parameters
+    plt.plot(np.arange(len(test_x)), psnr_test)
+    plt.savefig(f'{run_dir}/psnr_test.png')
+
+    record_results = {
+        'training_size': train_x.shape[0],
+        'hparams': hparams,
+        'psnr_test': psnr_test,
+        'psnr_train': psnr_train
     }
 
-    record_results = [
-        args.num_train, hparams['nonlinearity'], hparams['weight_var'],
-        hparams['bias_var'], hparams['depth'], psnr_train, psnr_test,
-        mse_train, mse_test
-    ]
-
     # Store data
-    result_file = os.path.join(run_dir, 'results.csv')
-    with open(result_file, 'a') as f:
-        f.write(json.dumps(record_results))
-
-    return metrics
+    result_file = os.path.join(run_dir, 'results.json')
+    with open(result_file, 'w') as f:
+        f.write(json.dumps(record_results, indent=4))
 
 
 if __name__ == '__main__':

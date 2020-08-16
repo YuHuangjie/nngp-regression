@@ -1,5 +1,7 @@
 #include <math.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdint.h>
 
 #define MIN(x, y) (x) < (y) ? (x) : (y)
 
@@ -40,29 +42,69 @@ static void get_interp_idx_weight(const double *x,
         weight_y[1] /= weight_sum;
 }
 
-extern "C" {
-void interp_lin_2d(const double *x, 
+static double interp_lin_2d(
+        const double *x, 
         size_t sz_x, // no. elements in x
         const double *y, 
         size_t sz_y, // no. elements in y
         const double *z, 
         double xp, 
-        const double *yp, 
-        size_t sz_yp, 
-        double *out)
+        double yp)
 {
         int idx_x[2], idx_y[2];
         double weight_x[2], weight_y[2];
+        double out = 0.;
 
-#pragma omp parallel for num_threads(39)
-        for (int i = 0; i < sz_yp; ++i) {
-                get_interp_idx_weight(x, sz_x, y, sz_y, xp, yp[i], idx_x, idx_y,
-                        weight_x, weight_y);
-                out[i] = 0.;
-                out[i] += z[idx_x[0]*sz_y+idx_y[0]]*weight_x[0]*weight_y[0];
-                out[i] += z[idx_x[0]*sz_y+idx_y[1]]*weight_x[0]*weight_y[1];
-                out[i] += z[idx_x[1]*sz_y+idx_y[0]]*weight_x[1]*weight_y[0];
-                out[i] += z[idx_x[1]*sz_y+idx_y[1]]*weight_x[1]*weight_y[1];
+        get_interp_idx_weight(x, sz_x, y, sz_y, xp, yp, idx_x, idx_y,
+                weight_x, weight_y);
+        out += z[idx_x[0]*sz_y+idx_y[0]]*weight_x[0]*weight_y[0];
+        out += z[idx_x[0]*sz_y+idx_y[1]]*weight_x[0]*weight_y[1];
+        out += z[idx_x[1]*sz_y+idx_y[0]]*weight_x[1]*weight_y[0];
+        out += z[idx_x[1]*sz_y+idx_y[1]]*weight_x[1]*weight_y[1];
+        return out;
+}
+
+extern "C" {
+double recursive_kernel(
+        const double *x, 
+        size_t sz_x, // no. elements in x
+        const double *y, 
+        size_t sz_y, // no. elements in y
+        const double *z, 
+        double *yp_in_out, 
+        size_t sz_yp, 
+        size_t depth,
+        double weight_var,
+        double bias_var,
+        const double *layer_qaa)
+{
+        double cov0 = bias_var;
+        {
+                double corr, xp, yp;
+
+                for (int d = 0; d < depth; ++d) {
+                        xp = layer_qaa[d];
+                        yp = corr = cov0 / layer_qaa[d];
+                        cov0 = interp_lin_2d(x, sz_x, y, sz_y, z, xp, yp);
+                        cov0 = cov0 * weight_var + bias_var;
+                }
         }
+
+        // recursively calculate covariance
+#pragma omp parallel for num_threads(39)
+        for (size_t i = 0; i < sz_yp; ++i) {
+                double cov = yp_in_out[i] * weight_var + bias_var;
+                double corr, xp, yp;
+
+                for (int d = 0; d < depth; d++) {
+                        xp = layer_qaa[d];
+                        yp = corr = cov / layer_qaa[d];
+                        cov = interp_lin_2d(x, sz_x, y, sz_y, z, xp, yp);
+                        cov = cov * weight_var + bias_var;
+                }
+                cov -= cov0;
+                yp_in_out[i] = cov;
+        }
+        return cov0;
 }
 }
