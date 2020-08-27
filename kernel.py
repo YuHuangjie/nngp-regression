@@ -6,7 +6,6 @@ kernel_lib = cdll.LoadLibrary('./libkernel.so')
 #         double *data,
 #         const void *indices,
 #         const void *indptr,
-#         int index_stride,
 #         size_t rows,
 #         const double *train_x,
 #         const double *x,
@@ -17,9 +16,8 @@ kernel_lib = cdll.LoadLibrary('./libkernel.so')
 kernel_lib.build_kernel.restype = None
 kernel_lib.build_kernel.argtypes = [
         POINTER(c_double),
-        c_void_p,
-        c_void_p,
-        c_size_t,
+        POINTER(c_int64),
+        POINTER(c_int64),
         c_size_t,
         POINTER(c_double),
         POINTER(c_double),
@@ -32,15 +30,15 @@ kernel_lib.build_kernel.argtypes = [
 
 def build_kernel(graph, train_x, x, l_pts, l_dir, gamma_pts, gamma_dir):
         if graph.data.dtype != np.float64 \
-          or (graph.indices.dtype != np.int32 and graph.indices.dtype != np.int64) \
+          or graph.indices.dtype != np.int64 \
           or graph.indices.dtype != graph.indices.dtype \
           or train_x.dtype != np.float64 \
           or x.dtype != np.float64:
                 raise TypeError("miss-matched type")
 
         data_p = graph.data.ctypes.data_as(POINTER(c_double))
-        indices_p = graph.indices.ctypes.data_as(c_void_p)
-        indptr_p = graph.indptr.ctypes.data_as(c_void_p)
+        indices_p = graph.indices.ctypes.data_as(POINTER(c_int64))
+        indptr_p = graph.indptr.ctypes.data_as(POINTER(c_int64))
         trainx_p = train_x.ctypes.data_as(POINTER(c_double))
         x_p = x.ctypes.data_as(POINTER(c_double))
 
@@ -48,7 +46,6 @@ def build_kernel(graph, train_x, x, l_pts, l_dir, gamma_pts, gamma_dir):
                 data_p,
                 indices_p,
                 indptr_p,
-                c_size_t(4 if graph.indices.dtype==np.int32 else 8),
                 graph.shape[0],
                 trainx_p,
                 x_p,

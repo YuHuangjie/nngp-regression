@@ -7,9 +7,8 @@
 extern "C" {
 void build_kernel(
         double *data,
-        const void *indices,
-        const void *indptr,
-        int index_stride,
+        const int64_t *indices,
+        const int64_t *indptr,
         size_t rows,
         const double *train_x,
         const double *x,
@@ -22,20 +21,26 @@ void build_kernel(
 
 #pragma omp parallel for num_threads(39)
         for (size_t row = 0; row < rows; row++) {
-                size_t cols = index_stride==4 ? ((const int*)indptr)[row] : ((const long long *)indptr)[row];
-                size_t cole = index_stride==4 ? ((const int*)indptr)[row+1] : ((const long long *)indptr)[row+1];
+                size_t cols = indptr[row];
+                size_t cole = indptr[row+1];
                 for (size_t i = cols; i < cole; i++) {
-                        size_t col = index_stride==4 ? ((const int*)indices)[i] : ((const long long *)indices)[i];
+                        size_t col = indices[i];
                         double view_dist;
                         double kernel_pos, kernel_view;
 
                         // covariance of position
-                        kernel_pos = exp(-NORM(
+                        // kernel_pos = exp(-NORM(
+                        //         train_x[stride*col]   - x[stride*row],
+                        //         train_x[stride*col+1] - x[stride*row+1],
+                        //         train_x[stride*col+2] - x[stride*row+2]
+                        // )/l_pts);
+                        // kernel_pos = pow(kernel_pos, power_pts);
+                        double pos_dist = NORM(
                                 train_x[stride*col]   - x[stride*row],
                                 train_x[stride*col+1] - x[stride*row+1],
                                 train_x[stride*col+2] - x[stride*row+2]
-                        )/l_pts);
-                        kernel_pos = pow(kernel_pos, power_pts);
+                        );
+                        kernel_pos = MAX(0., pow(1-pos_dist, power_pts));
 
                         // covariance of direction
                         view_dist = 1. - DOT(
@@ -45,9 +50,9 @@ void build_kernel(
                                 x[stride*row+3],
                                 x[stride*row+4],
                                 x[stride*row+5]);
-                        // kernel_view = pow(1.-view_dist, 9.0);
-                        kernel_view = exp(-view_dist/l_dir);
-                        kernel_view = pow(kernel_view, power_dir);
+                        kernel_view = MAX(0., pow(1.-view_dist, power_dir));
+                        // kernel_view = exp(-view_dist/l_dir);
+                        // kernel_view = pow(kernel_view, power_dir);
 
                         /// aggregated covariance
                         data[i] = kernel_pos * kernel_view;

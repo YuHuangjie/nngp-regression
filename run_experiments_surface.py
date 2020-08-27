@@ -33,12 +33,13 @@ import time
 import logging
 import argparse
 import json
+import pickle
 
 import numpy as np
 import imageio
 import matplotlib.pyplot as plt
 
-import gpr
+import gpr_fast as gpr
 import nngp
 from load_dataset import *
 
@@ -133,16 +134,10 @@ def run_nngp_eval(args):
     # Get the sets of images and labels for training, validation, and
     # # test on dataset.
     if args.dataset == 'surface':
-        train_paths = [os.path.join('data', f'{i}.npy') for i in 
-            np.random.choice(range(100),90,replace=False)]
-        # train_paths = [os.path.join('data', f'{i}.npy') for i in [
-        #     55,13,20,28,29,63,
-        #     65,70,76,84,89,98,]]
+        train_paths = [os.path.join('data', f'{i}.npy') for i in range(100)]
         test_paths = [os.path.join('data', f'test{i}.npy') for i in range(200)]
         (train_x, train_y) = load_training_set(train_paths)
         (test_x, test_y, test_mask) = load_test_set(test_paths)
-        # choice = np.random.choice(train_x.shape[0], int(train_x.shape[0]*0.8), replace=False)
-        # train_x, train_y = train_x[choice], train_y[choice]
     else:
         raise NotImplementedError
 
@@ -185,6 +180,18 @@ def run_nngp_eval(args):
     mse_train, psnr_train = do_eval(args, model, train_x, train_y)
     logging.info('Evaluation of training set ({0} examples) took '
                  '{1:.3f} secs'.format(train_x.shape[0], time.time() - start_time))
+
+    if args.save_kernel:
+        essential = {
+            'v': model.v,
+            'hparams': hparams,
+            'var_grid': nngp_kernel.var_aa_grid,
+            'corr_grid': nngp_kernel.corr_ab_grid,
+            'qab_grid': nngp_kernel.qab_grid,
+            'qaa_grid': nngp_kernel.layer_qaa
+        }
+        with open(os.path.join(run_dir, 'essential.pkl'), 'wb') as f:
+            pickle.dump(essential, f)
 
     start_time = time.time()
     logging.info('Test')
