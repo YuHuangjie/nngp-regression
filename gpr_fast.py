@@ -19,8 +19,7 @@ import time
 import logging
 
 import numpy as np
-import scipy.sparse as sparse
-from sklearn.neighbors import KDTree, NearestNeighbors
+from octree import octree
 from linear_system import solve_system
 
 class GaussianProcessRegression():
@@ -40,7 +39,8 @@ class GaussianProcessRegression():
 
         self.kern = kern
 
-        self.nn = NearestNeighbors(radius=radius, algorithm='kd_tree', n_jobs=-1).fit(input_x[:,:3])
+        self.tree = octree()
+        self.tree.nn_fit(self.input_x, bucket_size=32)
         self.radius = radius
         self.l_pts = l_pts
         self.l_dir = l_dir
@@ -51,7 +51,7 @@ class GaussianProcessRegression():
 
     def _build_predict(self, test_x, full_cov=False):
         logging.info("Performing bayesian inference")
-        self.s_test_data, self.c_test_data = self.kern.k_full(self.nn, test_x, 
+        self.s_test_data, self.c_test_data = self.kern.k_full(self.tree, test_x, 
             self.input_x, self.l_pts, self.l_dir, self.gamma_pts,
             self.gamma_dir, self.radius)
         self.fmean = self.s_test_data.dot(self.v) + self.c_test_data * np.sum(self.v, axis=0)
@@ -99,7 +99,7 @@ class GaussianProcessRegression():
         """
         if self.v is None:
             start_time = time.time()
-            self.s_data_data, self.c_data_data = self.kern.k_full(self.nn,
+            self.s_data_data, self.c_data_data = self.kern.k_full(self.tree,
                 self.input_x, self.input_x, self.l_pts, self.l_dir, self.gamma_pts,
                 self.gamma_dir, self.radius)
             logging.info("Computed full K_DD in {:.2f} secs".format(time.time()-start_time))

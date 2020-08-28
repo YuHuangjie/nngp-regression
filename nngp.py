@@ -26,9 +26,7 @@ import logging
 import numpy as np
 from scipy.special import logsumexp
 import interp_fast as interp
-import scipy.sparse as sparse
 from kernel import *
-import gc
 
 class NNGPKernel():
     """The iterative covariance Kernel for Neural Network Gaussian Process.
@@ -127,19 +125,14 @@ class NNGPKernel():
 
         return current_qaa
 
-    def k_full(self, nn, x, train_x, l_pts, l_dir, gamma_pts, gamma_dir, radius):
+    def k_full(self, tree, x, train_x, l_pts, l_dir, gamma_pts, gamma_dir, radius):
         """Iteratively building the full NNGP kernel.
         """
         # Initial covariance S is designed so that it's a super sparse matrix. 
         # After k linear layers, S becomes a sparse matrix plus a constant C.
-        graph = nn.radius_neighbors_graph(x[:,:3], radius, mode='connectivity')
-        gc.collect()
-        if graph.indptr.dtype != np.int64:
-            graph.indptr = graph.indptr.astype(np.int64, copy=False)
-            graph.indices = graph.indices.astype(np.int64, copy=False)
+        graph = tree.nn_radius(x, radius)
         logging.info(f'initial cov contains {graph.nnz} non-zeros')
         build_kernel(graph, train_x, x, l_pts, l_dir, gamma_pts, gamma_dir)
-        graph.eliminate_zeros()
 
         self.k_diag(x, 1.0)
         cov0 = interp.recursive_kernel(x=self.var_aa_grid,

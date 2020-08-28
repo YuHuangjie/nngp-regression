@@ -91,7 +91,7 @@ double recursive_kernel(
         }
 
         // recursively calculate covariance
-#pragma omp parallel for num_threads(39)
+#pragma omp parallel for num_threads(40)
         for (size_t i = 0; i < sz_yp; ++i) {
                 double cov = yp_in_out[i] * weight_var + bias_var;
                 double corr, xp, yp;

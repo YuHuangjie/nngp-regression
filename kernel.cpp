@@ -40,7 +40,7 @@ void build_kernel(
                                 train_x[stride*col+1] - x[stride*row+1],
                                 train_x[stride*col+2] - x[stride*row+2]
                         );
-                        kernel_pos = MAX(0., pow(1-pos_dist, power_pts));
+                        kernel_pos = pow(MAX(0., 1-pos_dist), power_pts);
 
                         // covariance of direction
                         view_dist = 1. - DOT(
@@ -50,7 +50,7 @@ void build_kernel(
                                 x[stride*row+3],
                                 x[stride*row+4],
                                 x[stride*row+5]);
-                        kernel_view = MAX(0., pow(1.-view_dist, power_dir));
+                        kernel_view = pow(MAX(0., 1.-view_dist), power_dir);
                         // kernel_view = exp(-view_dist/l_dir);
                         // kernel_view = pow(kernel_view, power_dir);
 

@@ -18,7 +18,9 @@
                         "program": "run_experiments_surface.py",
                         "console": "integratedTerminal",
                         "args": [
-                                "--experiment_dir=./exp",
+                                "--experiment_dir=./exp4",
+                                "--data_dir=./data/lucy",
+                                "--save_kernel=True",
                                 "--nonlinearity=relu",
                                 "--depth=8",
                                 "--weight_var=1",
@@ -30,8 +32,8 @@
                                 "--max_var=100",
                                 "--l_pts=0.005",
                                 "--l_dir=0.2",
-                                "--gamma_pts=0.6",
-                                "--gamma_dir=1.6",
+                                "--gamma_pts=140",
+                                "--gamma_dir=10",
                                 "--radius=2e-2"
                         ],
                         "env": {

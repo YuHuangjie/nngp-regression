@@ -12,7 +12,7 @@ void m_dot_v(const MKL_INT *__restrict ia, const MKL_INT *__restrict ja,
         const double *__restrict a, MKL_INT n, const double *__restrict x, 
         double *__restrict y)
 {
-#pragma omp parallel for num_threads(10)
+#pragma omp parallel for num_threads(40)
         for (MKL_INT i = 0; i < n; i++) {
                 MKL_INT start = ia[i], end = ia[i+1];
                 volatile double tmp = 0.;
