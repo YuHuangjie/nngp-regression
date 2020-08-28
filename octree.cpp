@@ -149,7 +149,7 @@ bool Octree::overlaps(const Point &query, double radius, const Octant &o) const
 }
 
 void Octree::radius_nn(const Octant &octant, const Point &query, double radius, 
-        std::vector<int64_t> &result) const
+        std::vector<int32_t> &result) const
 {
         // if search ball S(q,r) contains octant, simply add point indexes.
         if (contains(query, radius, octant)) {
@@ -180,19 +180,19 @@ void Octree::radius_nn(const Octant &octant, const Point &query, double radius,
         }
 }
 
-void Octree::radius_nn(const Point &query, double radius, std::vector<int64_t> &result) const
+void Octree::radius_nn(const Point &query, double radius, std::vector<int32_t> &result) const
 {
         if (root_ == -1) return;
         radius_nn(octants_[root_], query, radius, result);
 }
 
 static struct Octree tree;
-static shared_ptr<int64_t[]> csr_indices; // CSR representation
+static shared_ptr<int32_t[]> csr_indices; // CSR representation
 static shared_ptr<int64_t[]> csr_indptr;
-static shared_ptr<double[]> csr_data;
+static shared_ptr<float[]> csr_data;
 
 static void _nn_radius(const double *query, size_t start, size_t end, 
-        double radius, vector<int64_t> &ind, vector<int64_t> &nind)
+        double radius, vector<int32_t> &ind, vector<int64_t> &nind)
 {
         const Point *q = reinterpret_cast<const Point*>(query);
         size_t nnz = 0;
@@ -216,13 +216,14 @@ void nn_fit(const double *pts, size_t size, uint32_t bucket_size=32)
 }
 
 int64_t nn_radius(const double *query, size_t sz, double radius,
-        int64_t **indices, int64_t **indptr, double **data)
+        int32_t **indices, int64_t **indptr, float **data)
 {
         const size_t NTHREAD = 40;
         int64_t nnz = 0;
         size_t tail = 1;
         vector<thread> ts(NTHREAD);
-        vector<vector<int64_t> > ind(NTHREAD), n_ind(NTHREAD);
+        vector<vector<int32_t> > ind(NTHREAD);
+        vector<vector<int64_t> > n_ind(NTHREAD);
 
         for (size_t i = 0; i < NTHREAD; i++) {
                 size_t start = (sz / NTHREAD) * i;
@@ -237,9 +238,9 @@ int64_t nn_radius(const double *query, size_t sz, double radius,
         for (size_t i = 0; i < NTHREAD; i++) 
                 nnz += ind[i].size();
         
-        csr_indices.reset(new int64_t[nnz]);
+        csr_indices.reset(new int32_t[nnz]);
         csr_indptr.reset(new int64_t[sz+1]);
-        csr_data.reset(new double[nnz]);
+        csr_data.reset(new float[nnz]);
         csr_indptr[0] = 0;
         for (size_t i = 0; i < NTHREAD; i++) {
                 copy(ind[i].begin(), ind[i].end(), csr_indices.get()+csr_indptr[tail-1]);
@@ -247,7 +248,7 @@ int64_t nn_radius(const double *query, size_t sz, double radius,
                         csr_indptr[tail] = csr_indptr[tail-1] + n_ind[i][j];
                         tail++;
                 }
-                vector<int64_t>().swap(ind[i]);
+                vector<int32_t>().swap(ind[i]);
         }
 
         *indices = csr_indices.get();
@@ -259,8 +260,8 @@ int64_t nn_radius(const double *query, size_t sz, double radius,
 /* 
  * This function is not related to octree, but is put here for convenience
  */
-void m_dot_v(const int64_t *__restrict ia, const int64_t *__restrict ja, 
-        const double *__restrict a, size_t n, const double *__restrict x, 
+void m_dot_v(const int64_t *__restrict ia, const int32_t *__restrict ja, 
+        const float *__restrict a, size_t n, const double *__restrict x, 
         double *__restrict y, size_t nrhs)
 {
 #pragma omp parallel for num_threads(40)

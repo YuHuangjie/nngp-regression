@@ -8,23 +8,23 @@
 using namespace std;
 
 
-void m_dot_v(const MKL_INT *__restrict ia, const MKL_INT *__restrict ja, 
-        const double *__restrict a, MKL_INT n, const double *__restrict x, 
+void m_dot_v(const int64_t *__restrict ia, const int32_t *__restrict ja, 
+        const float *__restrict a, MKL_INT n, const double *__restrict x, 
         double *__restrict y)
 {
 #pragma omp parallel for num_threads(40)
         for (MKL_INT i = 0; i < n; i++) {
-                MKL_INT start = ia[i], end = ia[i+1];
+                int64_t start = ia[i], end = ia[i+1];
                 volatile double tmp = 0.;
 #pragma GCC ivdep
-                for (MKL_INT k = start; k < end; k++) {
+                for (int64_t k = start; k < end; k++) {
                         tmp += a[k] * x[ja[k]];
                 }
                 y[i] = tmp;
         }
 }
 
-void _solve_system(const MKL_INT *ia, const MKL_INT *ja, const double *a,
+void _solve_system(const int64_t *ia, const int32_t *ja, const float *a,
         MKL_INT n, const double *b, double *x, MKL_INT *itercount)
 {
         MKL_INT rci_request;
@@ -81,20 +81,18 @@ failure:printf ("This example FAILED as the solver has returned the ERROR code %
 extern "C" {
 void solve_system(
         const int64_t *ia, 
-        const int64_t *ja, 
-        const double *a, 
+        const int32_t *ja, 
+        const float *a, 
         int n, 
         const double *mrhs, 
         int nrhs, 
         double *x, 
         int64_t *itercount)
 {
-        const MKL_INT *llia = reinterpret_cast<const MKL_INT*>(ia);
-        const MKL_INT *llja = reinterpret_cast<const MKL_INT*>(ja);
         MKL_INT *lliter = reinterpret_cast<MKL_INT*>(itercount);
 
         for (int i = 0; i < nrhs; i++)
-                _solve_system(llia, llja, a, n, &mrhs[i*n], &x[i*n], &lliter[i]);
+                _solve_system(ia, ja, a, n, &mrhs[i*n], &x[i*n], &lliter[i]);
 }
 
 }

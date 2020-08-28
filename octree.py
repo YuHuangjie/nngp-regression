@@ -11,23 +11,23 @@ octree_lib.nn_fit.argtypes = [
         c_uint32
 ]
 # int64_t nn_radius(const double *query, size_t sz, double radius,
-#         int64_t **indices, int64_t **indptr, double **data)
+#         int32_t **indices, int64_t **indptr, float **data)
 octree_lib.nn_radius.restype = c_int64
 octree_lib.nn_radius.argtypes = [
         POINTER(c_double),
         c_size_t,
         c_double,
+        POINTER(POINTER(c_int32)),
         POINTER(POINTER(c_int64)),
-        POINTER(POINTER(c_int64)),
-        POINTER(POINTER(c_double))
+        POINTER(POINTER(c_float))
 ]
-# void m_dot_v(const int64_t *ia, const int64_t *ja, const double *a, 
+# void m_dot_v(const int64_t *ia, const int32_t *ja, const float *a, 
 #       size_t n, const double *x, double *y, size_t nrhs)
 octree_lib.m_dot_v.restype = None
 octree_lib.m_dot_v.argtypes = [
         POINTER(c_int64),
-        POINTER(c_int64),
-        POINTER(c_double),
+        POINTER(c_int32),
+        POINTER(c_float),
         c_size_t,
         POINTER(c_double),
         POINTER(c_double),
@@ -47,9 +47,9 @@ class graph:
                         raise TypeError('miss-matched type')
 
                 y = np.zeros((self.shape[0], x.shape[1]), dtype=np.float64)
-                indices_p = self.indices.ctypes.data_as(POINTER(c_int64))
+                indices_p = self.indices.ctypes.data_as(POINTER(c_int32))
                 indptr_p = self.indptr.ctypes.data_as(POINTER(c_int64))
-                data_p = self.data.ctypes.data_as(POINTER(c_double))
+                data_p = self.data.ctypes.data_as(POINTER(c_float))
                 x_p = x.ctypes.data_as(POINTER(c_double))
                 y_p = y.ctypes.data_as(POINTER(c_double))
                 
@@ -82,11 +82,11 @@ class octree:
                         raise TypeError("miss-matched type")
 
                 q_p = query.ctypes.data_as(POINTER(c_double))
-                indices_p = POINTER(c_int64)()
+                indices_p = POINTER(c_int32)()
                 indices_pp = pointer(indices_p)
                 indptr_p = POINTER(c_int64)()
                 indptr_pp = pointer(indptr_p)
-                data_p = POINTER(c_double)()
+                data_p = POINTER(c_float)()
                 data_pp = pointer(data_p)
                 nquery = query.shape[0]
 

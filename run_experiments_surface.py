@@ -134,8 +134,8 @@ def run_nngp_eval(args):
     # Get the sets of images and labels for training, validation, and
     # # test on dataset.
     if args.dataset == 'surface':
-        train_paths = [os.path.join('data', f'{i}.npy') for i in range(100)]
-        test_paths = [os.path.join('data', f'test{i}.npy') for i in range(200)]
+        train_paths = [os.path.join(args.data_dir, f'{i}.npy') for i in range(100)]
+        test_paths = [os.path.join(args.data_dir, f'test{i}.npy') for i in range(200)]
         (train_x, train_y) = load_training_set(train_paths)
         (test_x, test_y, test_mask) = load_test_set(test_paths)
     else:
@@ -213,7 +213,7 @@ def run_nngp_eval(args):
     }
 
     # Store data
-    result_file = os.path.join(run_dir, 'results.json')
+    result_file = os.path.join(run_dir, 'abstract.json')
     with open(result_file, 'w') as f:
         f.write(json.dumps(record_results, indent=4))
 

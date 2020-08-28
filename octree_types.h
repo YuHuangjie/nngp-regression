@@ -44,14 +44,14 @@ public:
         Octree& operator=(Octree &rhs) = delete;
 
         void initialize(const Point *data, uint32_t size, const OctreeParams &params=OctreeParams());
-        void radius_nn(const Point &query, double radius, std::vector<int64_t> &result) const;
+        void radius_nn(const Point &query, double radius, std::vector<int32_t> &result) const;
 
 private:
         int32_t create_octant(double x, double y, double z, double extent, 
                 uint32_t start, uint32_t end, uint32_t size);
         bool overlaps(const Point &query, double radius, const Octant &o) const;
         bool contains(const Point &query, double radius, const Octant &o) const;
-        void radius_nn(const Octant &o, const Point &query, double radius, std::vector<int64_t> &) const;
+        void radius_nn(const Octant &o, const Point &query, double radius, std::vector<int32_t> &) const;
 
         struct OctreeParams params_;
         // struct Octant *root_;

@@ -71,7 +71,7 @@ double recursive_kernel(
         const double *y, 
         size_t sz_y, // no. elements in y
         const double *z, 
-        double *yp_in_out, 
+        float *yp_in_out, 
         size_t sz_yp, 
         size_t depth,
         double weight_var,

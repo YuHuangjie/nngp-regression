@@ -6,8 +6,8 @@
 
 extern "C" {
 void build_kernel(
-        double *data,
-        const int64_t *indices,
+        float *data,
+        const int32_t *indices,
         const int64_t *indptr,
         size_t rows,
         const double *train_x,
@@ -21,10 +21,10 @@ void build_kernel(
 
 #pragma omp parallel for num_threads(39)
         for (size_t row = 0; row < rows; row++) {
-                size_t cols = indptr[row];
-                size_t cole = indptr[row+1];
+                int64_t cols = indptr[row];
+                int64_t cole = indptr[row+1];
                 for (size_t i = cols; i < cole; i++) {
-                        size_t col = indices[i];
+                        int32_t col = indices[i];
                         double view_dist;
                         double kernel_pos, kernel_view;
 
