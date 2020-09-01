@@ -82,6 +82,21 @@ interp_lib.recursive_kernel.argtypes = [
     c_double,
     POINTER(c_double)]
 
+# void lin_interp(
+#         const float *x, 
+#         size_t sz_x,
+#         const float *y, 
+#         float *xp_in_out, 
+#         size_t sz_xp)
+interp_lib.lin_interp.restype = None
+interp_lib.lin_interp.argtypes = [
+    POINTER(c_float),
+    c_size_t,
+    POINTER(c_float),
+    POINTER(c_float),
+    c_size_t
+]
+
 def recursive_kernel(x, y, z, yp, depth, weight_var, bias_var, layer_qaa):
     if x.dtype != np.float64 or y.dtype != np.float64 \
         or z.dtype != np.float64 or yp.dtype != np.float32 \
@@ -101,3 +116,15 @@ def recursive_kernel(x, y, z, yp, depth, weight_var, bias_var, layer_qaa):
         c_double(bias_var),
         layer_qaa.ctypes.data_as(POINTER(c_double)))
     
+def lin_interp(x, y, xp):
+    if x.dtype != np.float32 or y.dtype != np.float32 \
+        or xp.dtype != np.float32:
+        raise TypeError("miss-matched type")
+
+    interp_lib.lin_interp(
+        x.ctypes.data_as(POINTER(c_float)),
+        c_size_t(x.shape[0]),
+        y.ctypes.data_as(POINTER(c_float)),
+        xp.ctypes.data_as(POINTER(c_float)),
+        c_size_t(xp.size)
+    )

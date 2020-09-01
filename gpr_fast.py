@@ -72,8 +72,8 @@ class GaussianProcessRegression():
         C = self.c_data_data
         # parallel solving for inv(S_DD)\y and inv(S_DD)\u
         mrhs = np.zeros((4, self.num_train))
-        mrhs[:3] = self.output_y.T
-        mrhs[3] = np.ones((self.num_train,)) * C**0.5
+        mrhs[:-1] = self.output_y.T
+        mrhs[-1] = np.ones((self.num_train,)) * C**0.5
         x = np.zeros((4, self.num_train))
         iterations = solve_system(self.s_data_data.indptr, 
             self.s_data_data.indices,
@@ -82,8 +82,8 @@ class GaussianProcessRegression():
             mrhs,
             x)
 
-        a = x[:3].T # inv(S_DD) * y, Nx3
-        d = x[3:].T # inv(S_DD) * u, nx1
+        a = x[:-1].T # inv(S_DD) * y, Nx3
+        d = x[-1:].T # inv(S_DD) * u, nx1
 
         b = C**0.5 * np.sum(a, axis=0, keepdims=True)     # U^T * inv(S_DD) * y, 1x3
         b = np.matmul(d, b)                 # inv(S_DD) * U * U^T * inv(S_DD) * y, Nx3

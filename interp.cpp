@@ -107,4 +107,28 @@ double recursive_kernel(
         }
         return cov0;
 }
+
+void lin_interp(
+        const float *x, 
+        size_t sz_x,
+        const float *y, 
+        float *xp_in_out, 
+        size_t sz_xp)
+{
+        float spacing = x[1] - x[0];
+
+#pragma omp parallel for num_threads(40)
+        for (size_t i = 0; i < sz_xp; i++) {
+                float xp = xp_in_out[i];
+                float grid = (xp - x[0]) / spacing;
+                size_t ind1 = (size_t)grid;
+                size_t ind2 = MIN(ind1 + 1, sz_x - 1);
+                float weight1 = 1. - abs(xp - x[ind1]) / spacing;
+                float weight2 = 1. - abs(xp - x[ind2]) / spacing;
+                float weight_sum = weight1 + weight2;
+                weight1 /= weight_sum;
+                weight2 /= weight_sum;
+                xp_in_out[i] = y[ind1] * weight1 + y[ind2] * weight2;
+        }
+}
 }

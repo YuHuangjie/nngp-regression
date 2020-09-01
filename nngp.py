@@ -135,14 +135,18 @@ class NNGPKernel():
         build_kernel(graph, train_x, x, l_pts, l_dir, gamma_pts, gamma_dir)
 
         self.k_diag(x, 1.0)
+        tx = np.linspace(0., 1., 1000, dtype=np.float32)
+        ty = np.copy(tx)
         cov0 = interp.recursive_kernel(x=self.var_aa_grid,
                                 y=self.corr_ab_grid,
                                 z=self.qab_grid,
-                                yp=graph.data,
+                                yp=ty,
                                 depth=self.depth,
                                 weight_var=self.weight_var,
                                 bias_var=self.bias_var,
                                 layer_qaa=self.layer_qaa)
+        interp.lin_interp(x=tx, y=ty, xp=graph.data)
+        
         return graph, cov0
 
 def _fill_qab_slice(idx, z1, z2, var_aa, corr_ab, nonlin_fn):
