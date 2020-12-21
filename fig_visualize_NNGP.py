@@ -11,7 +11,7 @@ def relu(x):
 depth = 4
 weight_var = 1.0
 bias_var = 1.0
-nonlin_fn = relu
+nonlin_fn = np.tanh
 
 # constants
 grid_path = './grid_data'
@@ -21,11 +21,12 @@ n_corr = 500
 max_gauss = 10
 max_var = 100
 
+### RELU nonlinear
 nngp_kernel = nngp.NNGPKernel(
         depth=depth,
         weight_var=weight_var,
         bias_var=bias_var,
-        nonlin_fn=nonlin_fn,
+        nonlin_fn=relu,
         grid_path=grid_path,
         n_gauss=n_gauss,
         n_var=n_var,
@@ -35,12 +36,38 @@ nngp_kernel = nngp.NNGPKernel(
         use_precomputed_grid=True)
 
 nngp_kernel.k_diag([], 1.0)
-tx = np.linspace(0., 1., 1000, dtype=np.float32)
-ty = np.copy(tx)
-cov0 = interp.recursive_kernel(x=nngp_kernel.var_aa_grid,
+tx_relu = np.linspace(0., 1., 1000, dtype=np.float32)
+ty_relu = np.copy(tx_relu)
+cov0_relu = interp.recursive_kernel(x=nngp_kernel.var_aa_grid,
                                 y=nngp_kernel.corr_ab_grid,
                                 z=nngp_kernel.qab_grid,
-                                yp=ty,
+                                yp=ty_relu,
+                                depth=nngp_kernel.depth,
+                                weight_var=nngp_kernel.weight_var,
+                                bias_var=nngp_kernel.bias_var,
+                                layer_qaa=nngp_kernel.layer_qaa)
+
+### tanh nonlinear
+nngp_kernel = nngp.NNGPKernel(
+        depth=depth,
+        weight_var=weight_var,
+        bias_var=bias_var,
+        nonlin_fn=np.tanh,
+        grid_path=grid_path,
+        n_gauss=n_gauss,
+        n_var=n_var,
+        n_corr=n_corr,
+        max_gauss=max_gauss,
+        max_var=max_var,
+        use_precomputed_grid=True)
+
+nngp_kernel.k_diag([], 1.0)
+tx_tanh = np.linspace(0., 1., 1000, dtype=np.float32)
+ty_tanh = np.copy(tx_tanh)
+cov0_tanh = interp.recursive_kernel(x=nngp_kernel.var_aa_grid,
+                                y=nngp_kernel.corr_ab_grid,
+                                z=nngp_kernel.qab_grid,
+                                yp=ty_tanh,
                                 depth=nngp_kernel.depth,
                                 weight_var=nngp_kernel.weight_var,
                                 bias_var=nngp_kernel.bias_var,
@@ -55,13 +82,21 @@ params = {'legend.fontsize': 12,
          'xtick.labelsize':10,
          'ytick.labelsize':10}
 matplotlib.rcParams.update(params)
-
 plt.figure(figsize=(5,4))
-plt.plot(tx, ty+cov0)
-plt.xlim((0,1))
-plt.xlabel(r"$\frac{x\cdot x'}{d_{in}}$")
-plt.grid(True, which='major', alpha=.3)
-plt.ylabel(r"$K^L(x,x')$")
+
+fig, ax1 = plt.subplots()
+ax1.plot(tx_relu, ty_relu+cov0_relu, label='relu', color='blue')
+ax1.set_xlim((0,1))
+ax1.set_xlabel(r"$\frac{x\cdot x'}{d_{in}}$")
+ax1.set_ylabel(r"relu $K^L(x,x')$")
+ax1.grid(True, which='major', alpha=.3)
+ax1.legend(loc='upper left')
+
+ax2 = ax1.twinx()
+ax2.plot(tx_tanh, ty_tanh+cov0_tanh, label='tanh', color='red')
+ax2.set_ylabel(r"tanh $K^L(x,x')$")
+ax2.legend(loc='upper right')
+
 plt.tight_layout()
 plt.savefig('fig_visualize_NNGP.png')
 plt.show()
