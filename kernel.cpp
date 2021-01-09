@@ -29,18 +29,13 @@ void build_kernel(
                         double kernel_pos, kernel_view;
 
                         // covariance of position
-                        // kernel_pos = exp(-NORM(
-                        //         train_x[stride*col]   - x[stride*row],
-                        //         train_x[stride*col+1] - x[stride*row+1],
-                        //         train_x[stride*col+2] - x[stride*row+2]
-                        // )/l_pts);
-                        // kernel_pos = pow(kernel_pos, power_pts);
                         double pos_dist = NORM(
                                 train_x[stride*col]   - x[stride*row],
                                 train_x[stride*col+1] - x[stride*row+1],
                                 train_x[stride*col+2] - x[stride*row+2]
                         );
-                        kernel_pos = pow(MAX(0., 1-pos_dist), power_pts);
+                        kernel_pos = exp(-pos_dist/l_pts);
+                        // kernel_pos = pow(MAX(0., 1-pos_dist), power_pts);
 
                         // covariance of direction
                         view_dist = 1. - DOT(
@@ -50,7 +45,7 @@ void build_kernel(
                                 x[stride*row+3],
                                 x[stride*row+4],
                                 x[stride*row+5]);
-                        kernel_view = pow(MAX(0., 1.-view_dist), power_dir);
+                        kernel_view = pow(MAX(1.-view_dist, 0), power_dir);
                         // kernel_view = exp(-view_dist/l_dir);
                         // kernel_view = pow(kernel_view, power_dir);
 

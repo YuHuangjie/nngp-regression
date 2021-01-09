@@ -65,6 +65,8 @@ parser.add_argument('--save_kernel', default=False, type=bool,
                     help='Save Kernel to disk')
 parser.add_argument('--dataset', default='surface',
                     help='Which dataset to use ["mnist"]')
+parser.add_argument('--train_images', default=100, type=int,
+                    help='number of images to train')
 
 parser.add_argument('--n_gauss', default=501, type=int,
                     help='Number of gaussian integration grid. Choose odd integer.')
@@ -90,19 +92,21 @@ parser.add_argument('--radius', default=2e-2, type=float,
 
 def do_eval(args, model, x_data, y_data, mask=None, save_path=None):
     """Run evaluation."""
-
+    dsize = [512, 512]
     gp_prediction = model.predict(x_data)
     gp_prediction = np.clip(gp_prediction, 0., 1.)
 
     mse = np.mean(np.mean((gp_prediction - y_data)**2, axis=1))+1e-10
+    # if mask is not None:
+    #     mse *= (gp_prediction.shape[0] / dsize[0] /dsize[1])
     psnr = 10 * np.log10(1./mse)
     logging.info('PSNR: {:.4f}'.format(psnr))
     logging.info('MSE: {:.8f}'.format(mse))
 
     if save_path is not None and mask is not None:
-        I = np.zeros((512*512,3))
-        I[mask] = np.clip(gp_prediction, 0., 1.)
-        imageio.imsave(save_path, np.reshape(I, (512,512,3)))
+        I = np.zeros((dsize[0]*dsize[1],3), dtype=np.uint8)
+        I[mask] = (np.clip(gp_prediction, 0., 1.) * 255).astype(np.uint8)
+        imageio.imsave(save_path, np.reshape(I, (dsize[0],dsize[1],3)))
 
     return mse, psnr
 
@@ -134,7 +138,7 @@ def run_nngp_eval(args):
     # Get the sets of images and labels for training, validation, and
     # # test on dataset.
     if args.dataset == 'surface':
-        train_paths = [os.path.join(args.data_dir, f'{i}.npy') for i in range(100)]
+        train_paths = [os.path.join(args.data_dir, f'{i}.npy') for i in range(args.train_images)]
         test_paths = [os.path.join(args.data_dir, f'test{i}.npy') for i in range(200)]
         (train_x, train_y) = load_training_set(train_paths)
         (test_x, test_y, test_mask) = load_test_set(test_paths)
@@ -197,6 +201,7 @@ def run_nngp_eval(args):
     logging.info('Test')
     psnr_test = [None]*len(test_x)
     for i, (tx, ty, tm) in enumerate(zip(test_x, test_y, test_mask)):
+        print(i)
         _, psnr_test[i] = do_eval(args, model, tx, ty, mask=tm, save_path=f'{run_dir}/result{i}.png')
     logging.info('Evaluation of test set ({0} examples) took {1:.3f} secs'.format(
         test_x[0].shape[0]*len(test_x), time.time() - start_time))
@@ -204,6 +209,7 @@ def run_nngp_eval(args):
     # Log results and hyper-parameters
     plt.plot(np.arange(len(test_x)), psnr_test)
     plt.savefig(f'{run_dir}/psnr_test.png')
+    np.save(f'{run_dir}/test_psnr.npy', psnr_test)
 
     record_results = {
         'training_size': train_x.shape[0],

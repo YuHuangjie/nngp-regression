@@ -18,7 +18,10 @@ void m_dot_v(const int64_t *__restrict ia, const int32_t *__restrict ja,
                 volatile double tmp = 0.;
 #pragma GCC ivdep
                 for (int64_t k = start; k < end; k++) {
-                        tmp += a[k] * x[ja[k]];
+                        if (i == ja[k])
+                                tmp += (a[k] + 1e-4) * x[ja[k]];
+                        else
+                                tmp += a[k] * x[ja[k]];
                 }
                 y[i] = tmp;
         }
@@ -41,10 +44,11 @@ void _solve_system(const int64_t *ia, const int32_t *ja, const float *a,
         if (rci_request != 0)
                 goto failure;
 
-        ipar[7] = 0;
-        ipar[8] = 1;
-        ipar[9] = 1;
-        dpar[0] = 1e-7;
+        ipar[4] = 300;
+        ipar[7] = 1;    // maximum iteration stopping criteria
+        ipar[8] = 1;    // residual stopping criteria
+        ipar[9] = 0;    // user-specified stopping criteris
+        dpar[0] = 1e-6;
         dcg_check (&n, x, b, &rci_request, ipar, dpar, tmp);
         if (rci_request != 0)
                 goto failure;
@@ -56,14 +60,22 @@ rci:    dcg(&n, x, b, &rci_request, ipar, dpar, tmp);
         if (rci_request == 1) {
                 // mkl_sparse_d_mv(transA, 1.0, csrA, descrA, tmp, 0.0, &tmp[n]);
                 m_dot_v(ia, ja, a, n, tmp, &tmp[n]);
+                printf("%f, ", dpar[4]);
                 goto rci;
         }
         if (rci_request == 2)
         {
-                if (dpar[4] > dpar[5] && dpar[5] > 0)
+                // if (dpar[4] < 2) {
+                //         printf("end iteration because of increasing error\n");
+                //         goto getsln;
+                // }
+                if (dpar[4] > dpar[5] && dpar[5] != 0) {
+                        printf("end iteration because of increasing error\n");
                         goto getsln;
-                else
+                }
+                else {
                         goto rci;
+                }
         }
         goto failure;
 getsln: dcg_get (&n, x, b, &rci_request, ipar, dpar, tmp, itercount);
@@ -75,7 +87,7 @@ getsln: dcg_get (&n, x, b, &rci_request, ipar, dpar, tmp, itercount);
 
         return;
 
-failure:printf ("This example FAILED as the solver has returned the ERROR code %lld", rci_request);
+failure:printf ("This example FAILED as the solver has returned the ERROR code %lld\n", rci_request);
 }
 
 extern "C" {
