@@ -10,11 +10,14 @@ def relu(x):
 
 # variables
 weight_var = 1.0
-bias_var = 1.0
+bias_var = 0.5
 nonlin_fns = [relu, np.tanh]
 configs = [
+        {'depth': 3, 'color': 'red'},
         {'depth': 4, 'color': 'red'},
-        {'depth': 6, 'color': 'blue'}
+        {'depth': 5, 'color': 'green'},
+        {'depth': 6, 'color': 'blue'},
+        {'depth': 7, 'color': 'blue'},
 ]
 
 # constants
@@ -31,7 +34,7 @@ params = {'legend.fontsize': 13,
         'xtick.labelsize':12,
         'ytick.labelsize':12}
 matplotlib.rcParams.update(params)
-fig, axs = plt.subplots(1, 2, figsize=(10,4))
+fig, axs = plt.subplots(1, 2, figsize=(8,4))
 fig.subplots_adjust(left=0.08, bottom=0.25, right=0.95, top=0.95, wspace=0.25)
 
 for i, nonlin_fn in enumerate(nonlin_fns):
@@ -63,24 +66,25 @@ for i, nonlin_fn in enumerate(nonlin_fns):
                                                 layer_qaa=nngp_kernel.layer_qaa)
 
                 # plot NNGP kernel transform
-                axs[i].plot(tx, ty+cov0, label=r"$L="+f"{config['depth']}" + r"$", color=config['color'])
+                axs[i].plot(tx, ty+cov0, label=r"$L="+f"{config['depth']}" + r"$")
 
         '''
         Make figure
         '''
         # plot NNGP kernel transform
         axs[i].set_xlim((-1,1))
+        axs[i].set_xticks([-1,-0.5, 0, 0.5, 1])
         axs[i].set_xlabel(r"$x\cdot x' / d_{in}$", labelpad=5)
         if i == 0:
                 axs[i].set_ylabel(r"$K^L(x,x')$")
         if i == 0:
                 axs[i].set_title('(a) ReLU', y=-0.35)
         else:
-                axs[i].set_title('(b) tanh', y=-0.35)
+                axs[i].set_title('(b) Tanh', y=-0.35)
         axs[i].grid(True, which='major', alpha=.4)
-        axs[i].legend(loc='lower right')
 
-# plt.tight_layout()
+plt.tight_layout()
+plt.legend()
 plt.savefig('fig_kernel_evolution.png')
 plt.savefig('fig_kernel_evolution.pdf')
 plt.show()
