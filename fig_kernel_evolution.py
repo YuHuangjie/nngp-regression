@@ -28,14 +28,14 @@ n_corr = 500
 max_gauss = 10
 max_var = 100
 
-params = {'legend.fontsize': 13,
-        'axes.labelsize': 13,
-        'axes.titlesize': 15,
-        'xtick.labelsize':12,
-        'ytick.labelsize':12}
+params = {'legend.fontsize': 11,
+         'axes.labelsize': 12,
+         'axes.titlesize': 13,
+         'xtick.labelsize':10,
+         'ytick.labelsize':10}
 matplotlib.rcParams.update(params)
-fig, axs = plt.subplots(1, 2, figsize=(8,4))
-fig.subplots_adjust(left=0.08, bottom=0.25, right=0.95, top=0.95, wspace=0.25)
+fig, axs = plt.subplots(1, 2, figsize=(8,3.5))
+# fig.subplots_adjust(left=0.08, bottom=0.25, right=0.95, top=0.95, wspace=0.25)
 
 for i, nonlin_fn in enumerate(nonlin_fns):
         for config in configs:
@@ -54,7 +54,7 @@ for i, nonlin_fn in enumerate(nonlin_fns):
                         use_precomputed_grid=True)
 
                 nngp_kernel.k_diag([], 1.0)
-                tx = np.linspace(-1., 1., 1000, dtype=np.float32)
+                tx = np.linspace(0., 1., 1000, dtype=np.float32)
                 ty = np.copy(tx)
                 cov0 = interp.recursive_kernel(x=nngp_kernel.var_aa_grid,
                                                 y=nngp_kernel.corr_ab_grid,
@@ -72,19 +72,19 @@ for i, nonlin_fn in enumerate(nonlin_fns):
         Make figure
         '''
         # plot NNGP kernel transform
-        axs[i].set_xlim((-1,1))
-        axs[i].set_xticks([-1,-0.5, 0, 0.5, 1])
-        axs[i].set_xlabel(r"$x\cdot x' / d_{in}$", labelpad=5)
+        axs[i].set_xlim((0,1))
+        axs[i].set_xticks([0, 0.5, 1])
+        axs[i].set_xlabel(r"$\tilde{K}^0(x,x')$")
         if i == 0:
                 axs[i].set_ylabel(r"$K^L(x,x')$")
         if i == 0:
-                axs[i].set_title('(a) ReLU', y=-0.35)
+                axs[i].set_title('(a) ReLU', y=-0.4)
         else:
-                axs[i].set_title('(b) Tanh', y=-0.35)
+                axs[i].set_title('(b) Tanh', y=-0.4)
         axs[i].grid(True, which='major', alpha=.4)
 
 plt.tight_layout()
 plt.legend()
-plt.savefig('fig_kernel_evolution.png')
-plt.savefig('fig_kernel_evolution.pdf')
+plt.savefig('fig_kernel_evolution.png', bbox_inches='tight',pad_inches=0)
+plt.savefig('fig_kernel_evolution.pdf', bbox_inches='tight',pad_inches=0)
 plt.show()

@@ -36,7 +36,7 @@ nngp_kernel = nngp.NNGPKernel(
         use_precomputed_grid=True)
 
 nngp_kernel.k_diag([], 4.0)
-tx = np.linspace(-4., 4., 100, dtype=np.float32)
+tx = np.linspace(-4., 4., 1000, dtype=np.float32)
 ty = np.copy(tx)
 cov0 = interp.recursive_kernel(x=nngp_kernel.var_aa_grid,
                                 y=nngp_kernel.corr_ab_grid,
@@ -48,38 +48,31 @@ cov0 = interp.recursive_kernel(x=nngp_kernel.var_aa_grid,
                                 layer_qaa=nngp_kernel.layer_qaa)
 
 ### calculate weight function of NNGP with dot product
-x = np.linspace(-2, 2, 30)[:,None]
-X = np.sort(x, axis=0)
+x, y = np.meshgrid(np.linspace(-3, 3, 30), np.linspace(2*np.pi, 0, 30))
+X = np.stack([x, y], axis=-1)
+X = np.reshape(X, [-1, 2])
 
 kernels = {
-        'simple': lambda x: X@x.T/2,
-        'rbf': lambda x: np.exp(-np.sum((x[None, :, :]-X[:, None, :])**2, axis=-1)),
-        'exp': lambda x: np.exp(-np.linalg.norm((x[None, :, :]-X[:, None, :]), axis=-1)),
+        'exp': lambda x: np.exp(-0.05*np.linalg.norm((x[None, :, :]-X[:, None, :]), axis=-1)),
+        'anisotropic': lambda x: np.exp(-3*(np.abs(x[None, :, 0]-X[:, None, 0]))) * \
+                np.exp(-0.1*np.linalg.norm(np.hstack([np.cos(x[:,1:]), np.sin(x[:,1:])])[None,:,:] - np.hstack([np.cos(X[:,1:]), np.sin(X[:,1:])])[:,None,:], axis=-1))
 }
 title = {
-        'simple': r"(a) $x\cdot x'$",
-        'rbf': r"(b) $\mathrm{exp}(-\Vert x-x' \Vert^2)$",
-        'exp': r"(c) $\mathrm{exp}(-\Vert x-x' \Vert)$",
+        'exp': r"(a) EXP base kernel",
+        'anisotropic': r"(b) Compound base kernel"
 }
-h1 = {}
-h2 = {}
+h = {}
 for k in kernels:
         base_kernel = kernels[k]
         K = base_kernel(X)      # base kernel matrix
         K = np.interp(K, tx, ty+cov0)    # apply NNGP transformation
         K += 0.01*np.eye(K.shape[0])
 
-        s_p1 = r'-0.5'
-        x_p1 = np.array([[0]])
+        s_p1 = r'[0, 2\pi]^\mathrm{T}'
+        x_p1 = np.array([[0, 2*np.pi]])
         k_p1 = base_kernel(x_p1)
         k_p1 = np.interp(k_p1, tx, ty+cov0)
-        h1[k] = np.linalg.solve(K, k_p1)
-
-        s_p2 = r'0.5'
-        x_p2 = np.array([[1]])
-        k_p2 = base_kernel(x_p2)
-        k_p2 = np.interp(k_p2, tx, ty+cov0)
-        h2[k] = np.linalg.solve(K, k_p2)
+        h[k] = np.linalg.solve(K, k_p1)
 
 '''
 Make figure
@@ -90,26 +83,29 @@ params = {'legend.fontsize': 13,
          'xtick.labelsize':12,
          'ytick.labelsize':12}
 matplotlib.rcParams.update(params)
-fig, axs = plt.subplots(1, len(kernels), figsize=(len(kernels)*5,5))
+fig, axs = plt.subplots(1, len(kernels), figsize=(len(kernels)*6,5))
 
 
 # plot NNGP weight function
 for i, k in enumerate(kernels):
-        axs[i].grid(True)
-        axs[i].set_xlim((-2, 2))
-        axs[i].set_xlabel('x')
-        if i == 0:
-                axs[i].set_ylabel('weight')
-        axs[i].ticklabel_format(axis='y', style='sci', scilimits=(0,0))
-        axs[i].set_xticks([-2, -1, 0, 1, 2])
+        axs[i].set_xlabel('altitude')
+        axs[i].set_ylabel('azimuth')
+        axs[i].set_xticks([-3, -1.5, 0, 1.5, 3])
+        axs[i].set_yticks([0, np.pi, 2*np.pi])
+        axs[i].set_yticklabels(['0', '$\pi$', '$2\pi$'])
         axs[i].set_title(title[k], y=-0.25)
-        axs[i].plot(X, h1[k], marker='o', color='b', label=r'$x^*='+f'{s_p1}'+'$')
-        axs[i].plot(X, h2[k], marker='o', color='r', label=r'$x^*='+f'{s_p2}'+'$')
+        h[k] = np.reshape(h[k], x.shape)
 
+        im = axs[i].imshow(h[k], extent=[-3,3,0,2*np.pi], vmin=0, interpolation='bilinear')
+        axs[i].text(1, 5.7, s=r'$x^*='+f'{s_p1}'+'$', fontsize=13, c='r')
+
+        divider = make_axes_locatable(axs[i])
+        cax = divider.append_axes('right', size='5%', pad=0.05)
+        cbar = fig.colorbar(im, cax=cax)
+        cbar.formatter.set_powerlimits((0, 0))
 
 # plt.tight_layout()
-plt.legend()
 plt.tight_layout()
-plt.savefig('fig_weight_function_1d.png')
-plt.savefig('fig_weight_function_1d.pdf')
+plt.savefig('fig_weight_function_anisotropic.png')
+plt.savefig('fig_weight_function_anisotropic.pdf')
 plt.show()

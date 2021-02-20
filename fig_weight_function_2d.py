@@ -96,12 +96,13 @@ for i, k in enumerate(kernels):
         axs[i].set_title(title[k], y=-0.25)
         h[k] = np.reshape(h[k], x.shape)
 
-        im = axs[i].imshow(h[k], extent=[-2,2,-2,2])
+        im = axs[i].imshow(h[k], extent=[-2,2,-2,2], interpolation='bilinear')
         axs[i].text(0.8, 1.6, s=r'$x^*='+f'{s_p1}'+'$', fontsize=13, c='r')
 
         divider = make_axes_locatable(axs[i])
         cax = divider.append_axes('right', size='5%', pad=0.05)
-        fig.colorbar(im, cax=cax)
+        cbar = fig.colorbar(im, cax=cax)
+        cbar.formatter.set_powerlimits((0, 0))
 
 # plt.tight_layout()
 plt.tight_layout()
